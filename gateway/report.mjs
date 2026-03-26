@@ -248,6 +248,7 @@ const evaluateItem = (item, owner, location, source) => {
       source,
       sheet: exactMatch.sheet,
       valueHr: exactMatch.valueHr,
+      tradeValue: exactMatch.tradeLabel ?? null,
       matchedBy: "exact",
     };
   }

@@ -2,8 +2,8 @@ export type MarketData = {
   generatedAt: string;
   runeValues: Record<string, number>;
   tokenValues: Record<string, { name: string; valueHr: number; kind: string }>;
-  exactValues: Record<string, { name: string; valueHr: number; sheet: string; basis: string }>;
-  entries: Array<{ name: string; normalizedName: string; valueHr: number; sheet: string; basis: string }>;
+  exactValues: Record<string, { name: string; valueHr: number; sheet: string; basis: string; tradeLabel?: string | null }>;
+  entries: Array<{ name: string; normalizedName: string; valueHr: number; sheet: string; basis: string; tradeLabel?: string | null }>;
 };
 
 export type ItemLocation =

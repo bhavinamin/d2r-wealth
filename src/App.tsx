@@ -123,7 +123,7 @@ function TopItemsTable(props: { title: string; items: ValuedItem[]; showSource?:
                 ) : null}
               </div>
               <div className="value-stack">
-                <span className={`trade-tag ${tradeTierClass(item.valueHr)}`}>{toTradeValue(item.valueHr)}</span>
+                <span className={`trade-tag ${tradeTierClass(item.valueHr)}`}>{item.tradeValue ?? toTradeValue(item.valueHr)}</span>
                 <b>{formatHr(item.valueHr)}</b>
               </div>
             </div>

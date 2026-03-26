@@ -222,19 +222,31 @@ for (const sheetName of entrySheets) {
     const name = sheetName === "Magic Market" && section && second ? `${section}: ${first}` : first;
     let valueHr = 0;
     let basis = "buy";
+    let tradeLabel = null;
+    let sourceText = "";
 
     if (sheetName === "Classic Sunder") {
-      valueHr = recipeTokenValue(fourth || second);
+      sourceText = fourth || second;
+      valueHr = recipeTokenValue(sourceText);
       basis = fourth ? "sell" : "buy";
     } else if (sheetName === "Base Market" || sheetName === "Raw Market" || sheetName === "Magic Market") {
-      valueHr = recipeTokenValue(second);
+      sourceText = second;
+      valueHr = recipeTokenValue(sourceText);
     } else {
-      valueHr = recipeTokenValue(third || second);
+      sourceText = third || second;
+      valueHr = recipeTokenValue(sourceText);
       basis = third ? "sell" : "buy";
     }
 
     if (!valueHr) {
       continue;
+    }
+
+    const payoutTokens = parseTokens(sourceText);
+    if (payoutTokens.length === 1) {
+      const payout = payoutTokens[0];
+      const tokenName = canonicalToken(payout.name);
+      tradeLabel = payout.quantity > 1 ? `${tokenName} x${payout.quantity}` : tokenName;
     }
 
     entries.push({
@@ -243,6 +255,7 @@ for (const sheetName of entrySheets) {
       valueHr: Number(valueHr.toFixed(6)),
       sheet: sheetName,
       basis,
+      tradeLabel,
     });
   }
 }
@@ -250,7 +263,7 @@ for (const sheetName of entrySheets) {
 const exactValues = Object.fromEntries(
   entries.map((entry) => [
     entry.normalizedName,
-    { name: entry.name, valueHr: entry.valueHr, sheet: entry.sheet, basis: entry.basis },
+    { name: entry.name, valueHr: entry.valueHr, sheet: entry.sheet, basis: entry.basis, tradeLabel: entry.tradeLabel },
   ]),
 );
 
