@@ -99,7 +99,7 @@ function StatCard(props: { label: string; value: string; tone?: "default" | "acc
   );
 }
 
-function TopItemsTable(props: { title: string; items: ValuedItem[] }) {
+function TopItemsTable(props: { title: string; items: ValuedItem[]; showSource?: boolean; showQuantity?: boolean }) {
   return (
     <section className="panel">
       <div className="panel-header">
@@ -112,10 +112,15 @@ function TopItemsTable(props: { title: string; items: ValuedItem[] }) {
           props.items.map((item) => (
             <div key={item.id} className="table-row">
               <div>
-                <strong>{item.name}</strong>
-                <span>
-                  {item.owner} • {item.source}
-                </span>
+                <strong>
+                  {item.name}
+                  {props.showQuantity ? ` x${item.quantity ?? 1}` : ""}
+                </strong>
+                {props.showSource !== false ? (
+                  <span>
+                    {item.owner} • {item.source}
+                  </span>
+                ) : null}
               </div>
               <div className="value-stack">
                 <span className={`trade-tag ${tradeTierClass(item.valueHr)}`}>{toTradeValue(item.valueHr)}</span>
@@ -402,7 +407,7 @@ export default function App() {
 
       <section className="two-up">
         <TopItemsTable title="Highest Value Character Stash Items" items={report?.topCharacterStash ?? []} />
-        <TopItemsTable title="Highest Value Shared Stash Items" items={report?.topSharedStash ?? []} />
+        <TopItemsTable title="Highest Value Shared Stash Items" items={report?.topSharedStash ?? []} showSource={false} showQuantity />
       </section>
 
       <section className="panel">

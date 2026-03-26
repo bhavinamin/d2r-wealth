@@ -14,6 +14,7 @@ Prove the parser and valuation logic are correct enough to trust for wealth tota
 - Use a small fixture set first: one character, one stash, one shared stash.
 - Test known anchors such as `Ber = 1.0 HR`, `Jah`, `Sur`, `Lo`, `Vex`, and `Ist` conversions.
 - Validate exact multi-rune equivalence in the UI, for example `2 Ist = Gul` and `8 Hel != Pul`.
+- Validate non-rune material pricing such as keys, essences, and worldstone shards against the active market inputs.
 - Confirm equipment value is included exactly once.
 - Confirm stash rankings are sorted by HR value and stable on ties.
 
@@ -23,3 +24,4 @@ Prove the parser and valuation logic are correct enough to trust for wealth tota
 - Chart history points match the imported snapshot totals.
 - Build and smoke tests pass before any release candidate.
 - Stackable stash placeholders with zero quantity do not surface as owned runes.
+- Suspicious shared-stash page junk does not leak into valued leaderboards.

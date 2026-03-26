@@ -63,6 +63,7 @@ const normalize = (value) =>
   String(value ?? "")
     .trim()
     .toLowerCase()
+    .replace(/\bkey of hate\b/g, "key of hatred")
     .replace(/\s+/g, " ")
     .replace(/\s*,\s*/g, ",")
     .replace(/\s*=\s*/g, "=");
@@ -110,6 +111,14 @@ const tokenAliases = new Map([
   ["jewels", "Jewel"],
   ["p amethysts", "Perfect Amethyst"],
   ["perfect amethyst", "Perfect Amethyst"],
+]);
+
+const exactAliases = new Map([
+  ["key of hate", "Key of Hatred"],
+  ["twisted essence of suffering", "Essence 1"],
+  ["charged essence of hatred", "Essence 2"],
+  ["burning essence of terror", "Essence 3"],
+  ["festering essence of destruction", "Essence 4"],
 ]);
 
 const canonicalToken = (name) => tokenAliases.get(normalize(name)) ?? name.trim();
@@ -244,6 +253,28 @@ const exactValues = Object.fromEntries(
     { name: entry.name, valueHr: entry.valueHr, sheet: entry.sheet, basis: entry.basis },
   ]),
 );
+
+for (const [alias, target] of exactAliases.entries()) {
+  const match = exactValues[normalize(target)];
+  if (match) {
+    exactValues[normalize(alias)] = { ...match, name: alias.replace(/\b\w/g, (letter) => letter.toUpperCase()) };
+  }
+}
+
+for (const shardName of [
+  "Western Worldstone Shard",
+  "Eastern Worldstone Shard",
+  "Southern Worldstone Shard",
+  "Deep Worldstone Shard",
+  "Northern Worldstone Shard",
+]) {
+  exactValues[normalize(shardName)] = {
+    name: shardName,
+    valueHr: runeValues.Pul,
+    sheet: "Torch Market",
+    basis: "mod-trade",
+  };
+}
 
 fs.mkdirSync(outDir, { recursive: true });
 fs.writeFileSync(

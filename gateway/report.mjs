@@ -37,6 +37,7 @@ const normalizeMarketName = (value) =>
   String(value ?? "")
     .trim()
     .toLowerCase()
+    .replace(/\bkey of hate\b/g, "key of hatred")
     .replace(/\brune\b/g, "")
     .replace(/\s+/g, " ")
     .replace(/\s*,\s*/g, ",")
@@ -151,6 +152,11 @@ const isLowConfidenceStoredAccessory = (item, location) => {
   return new Set(["amu", "rin", "jew", "cm1", "cm2", "cm3"]).has(item.type);
 };
 
+const isSuspiciousParsedItem = (item) => {
+  const type = String(item.type ?? "");
+  return !/^[a-z0-9]{3}$/i.test(type);
+};
+
 const isMaterialLikeToken = (item) => {
   const name = displayName(item);
   const normalized = normalizeMarketName(name);
@@ -187,10 +193,13 @@ const stackQuantity = (item) => {
 };
 
 const evaluateItem = (item, owner, location, source) => {
-  if (isLowConfidenceStoredAccessory(item, location)) {
+  const quantity = stackQuantity(item);
+
+  if (isLowConfidenceStoredAccessory(item, location) || (location !== "equipped" && isSuspiciousParsedItem(item))) {
     return {
       id: `${owner}-${source}-${displayName(item)}`,
       name: displayName(item),
+      quantity,
       owner,
       location,
       source,
@@ -205,6 +214,7 @@ const evaluateItem = (item, owner, location, source) => {
     return {
       id: `${owner}-${source}-${displayName(item)}`,
       name: resolvedRuneword,
+      quantity,
       owner,
       location,
       source,
@@ -215,10 +225,10 @@ const evaluateItem = (item, owner, location, source) => {
 
   const tokenMatch = matchTokenValue(item);
   if (tokenMatch) {
-    const quantity = stackQuantity(item);
     return {
       id: `${owner}-${source}-${displayName(item)}`,
       name: displayName(item),
+      quantity,
       owner,
       location,
       source,
@@ -232,6 +242,7 @@ const evaluateItem = (item, owner, location, source) => {
     return {
       id: `${owner}-${source}-${displayName(item)}`,
       name: displayName(item),
+      quantity,
       owner,
       location,
       source,
@@ -249,6 +260,7 @@ const evaluateItem = (item, owner, location, source) => {
     return {
       id: `${owner}-${source}-${displayName(item)}`,
       name: displayName(item),
+      quantity,
       owner,
       location,
       source,
@@ -260,6 +272,7 @@ const evaluateItem = (item, owner, location, source) => {
   return {
     id: `${owner}-${source}-${displayName(item)}`,
     name: displayName(item),
+    quantity,
     owner,
     location,
     source,
@@ -509,6 +522,7 @@ export const buildGatewayReport = async (saveDir) => {
       .slice(0, 12),
     topSharedStash: valuedItems
       .filter((item) => item.location === "shared-stash" || item.location === "private-stash")
+      .filter((item) => !(item.matchedBy === "token" && market.tokenValues[normalizeMarketName(item.name)]?.kind === "rune"))
       .filter((item) => item.valueHr > 0)
       .sort((left, right) => right.valueHr - left.valueHr)
       .slice(0, 12),

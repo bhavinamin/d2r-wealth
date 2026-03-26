@@ -20,6 +20,7 @@ It reads character saves and shared stash files, prices runes in `HR`, values eq
 
 - Local gateway watching a live D2R save folder
 - Shared stash material parsing for runes and stackable items
+- Shared stash valuation for keys, essences, gems, and worldstone shards
 - Equipped gear valuation, including runeword recipe fallback like `Enigma`
 - Ranked character stash and shared stash value tables
 - Wealth history chart stored locally in the browser
@@ -29,7 +30,7 @@ It reads character saves and shared stash files, prices runes in `HR`, values eq
 
 - Personal stash parsing for heavily modded `.d2s` item records is still conservative
 - Rare, crafted, jewel, charm, and affix-sensitive item pricing is still shallow
-- Some unmatched shared stash items are intentionally suppressed from top-value views unless they price cleanly
+- Some low-confidence shared-stash page parses are intentionally suppressed from top-value views unless they price cleanly
 - The local gateway is HTTP; a remotely hosted HTTPS frontend will need a secure local bridge
 
 ## Run Locally
@@ -64,5 +65,7 @@ The gateway is intended to point at a live D2R save directory such as:
 ## Repo Notes
 
 - `scripts/generate-market.mjs` builds the runtime market index
+- it also applies value aliases for modded item names like essences and key naming differences
 - `gateway/report.mjs` is the authoritative gateway-side parser and valuation path
+- worldstone shard valuation currently comes from the installed Single Player Trading Market mod recipes
 - `src/App.tsx` contains the current dashboard behavior and trade-tag UI rules

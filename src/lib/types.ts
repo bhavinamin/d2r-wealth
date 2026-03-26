@@ -18,6 +18,7 @@ export type ItemLocation =
 export type ValuedItem = {
   id: string;
   name: string;
+  quantity?: number;
   location: ItemLocation;
   owner: string;
   source: string;
