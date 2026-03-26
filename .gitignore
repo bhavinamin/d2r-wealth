@@ -1,0 +1,6 @@
+node_modules/
+dist/
+src/generated/market-data.json
+tsconfig.tsbuildinfo
+tmp-gateway.log
+tmp-vite.log

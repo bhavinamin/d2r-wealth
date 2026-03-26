@@ -1,0 +1,29 @@
+{
+  "name": "d2-wealth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "node ./scripts/patch-d2-parser.mjs",
+    "predev": "npm run generate:market",
+    "dev": "vite",
+    "prebuild": "npm run generate:market",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "generate:market": "node ./scripts/generate-market.mjs",
+    "gateway": "node ./gateway/server.mjs"
+  },
+  "dependencies": {
+    "@d2runewizard/d2s": "^2.0.130",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12",
+    "xlsx": "^0.18.5"
+  }
+}
