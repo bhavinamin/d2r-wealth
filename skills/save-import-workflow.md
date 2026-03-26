@@ -25,5 +25,6 @@ Import Diablo 2: Resurrected character and stash files, extract all value-bearin
 ## Outputs
 - Character wealth snapshot.
 - Account wealth snapshot.
+- Character ruleset labels (`Classic`, `LoD`, `ROTW`) for the overview roster.
 - Ranked highest-value items for personal and shared stash.
 - Time-series point for the chart.

@@ -15,6 +15,9 @@ It reads character saves and shared stash files, prices runes in `HR`, values eq
   - character gear and personal stash come from `.d2s`
   - shared stash items come from `.d2i`
   - material/rune inventory is read from the D2R v105 stackable stash sector, not from the old chronicle fallback
+- UI:
+  - `Overview` page focuses on connection state, quick account totals, history, and character roster
+  - `Loot Ledger` page isolates highest-value stash items and rune inventory into a dedicated loot view
 
 ## What Works
 
@@ -25,6 +28,7 @@ It reads character saves and shared stash files, prices runes in `HR`, values eq
 - Ranked character stash and shared stash value tables
 - Wealth history chart stored locally in the browser
 - Rune inventory with exact trade-equivalent breakdown tags
+- Character roster tags for `Classic`, `LoD`, or `ROTW`
 
 ## Known Limits
 
@@ -69,3 +73,4 @@ The gateway is intended to point at a live D2R save directory such as:
 - `gateway/report.mjs` is the authoritative gateway-side parser and valuation path
 - worldstone shard valuation currently comes from the installed Single Player Trading Market mod recipes
 - `src/App.tsx` contains the current dashboard behavior and trade-tag UI rules
+- `src/App.tsx` now separates the product into `Overview` and `Loot Ledger` views

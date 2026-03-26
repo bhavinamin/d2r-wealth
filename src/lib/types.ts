@@ -56,6 +56,7 @@ export type WealthReport = {
     name: string;
     className: string;
     level: number;
+    ruleset: "Classic" | "LoD" | "ROTW";
     equippedHr: number;
     stashHr: number;
   }>;

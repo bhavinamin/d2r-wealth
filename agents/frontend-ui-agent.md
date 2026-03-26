@@ -9,6 +9,7 @@ Build the dashboard experience around wealth tracking, item inspection, and hist
 - Render total account wealth, per-character wealth, and rune inventory clearly.
 - Show a realtime chart of wealth accumulation over time.
 - Display highest-value items from personal stash and shared stash in ranked columns.
+- Keep high-density loot detail separated from the main account overview when the page starts feeling overloaded.
 
 ## UI Direction
 - Use a bold, premium look instead of a generic admin template.
@@ -23,8 +24,9 @@ Build the dashboard experience around wealth tracking, item inspection, and hist
 - Treat `HR` as the primary source of truth.
 - Use trade tags only where they add meaning; do not clutter character summary rows with approximate rune labels.
 - Rune inventory trade tags must represent exact trade-equivalent breakdowns, not nearest-rune guesses.
+- When a local gateway is connected, reduce duplicate import controls instead of keeping both primary actions equally prominent.
 
 ## Visual Hierarchy
-- Top row: total HR, liquid runes, equipped gear value, stash value.
-- Middle: realtime accumulation chart.
-- Lower sections: item tables, stash rank columns, rune inventory, and diagnostics.
+- `Overview`: connection controls, quick totals, history, roster, notes.
+- `Loot Ledger`: highest-value character stash items, highest-value shared stash items, rune inventory.
+- The loot view should treat item ranking as the centerpiece and avoid burying it under onboarding copy.

@@ -21,7 +21,7 @@ type D2Item = {
 };
 
 type CharacterData = {
-  header: { name: string; class: string; level: number };
+  header: { name: string; class: string; level: number; status?: { expansion?: boolean } };
   items: D2Item[];
 };
 
@@ -64,6 +64,23 @@ const runewordRecipes: Record<string, string[]> = {
   Grief: ["Eth", "Tir", "Lo", "Mal", "Ral"],
   Insight: ["Ral", "Tir", "Tal", "Sol"],
   Spirit: ["Tal", "Thul", "Ort", "Amn"],
+};
+
+const isRotwEnvironment = (names: string[]) => {
+  const haystack = names.join(" ").toLowerCase();
+  return haystack.includes("rotw") || haystack.includes("d2rmm_solo") || haystack.includes("modernsharedstash");
+};
+
+const classifyRuleset = (character: CharacterData, names: string[]): "Classic" | "LoD" | "ROTW" => {
+  if (isRotwEnvironment(names)) {
+    return "ROTW";
+  }
+
+  if (character.header.status?.expansion) {
+    return "LoD";
+  }
+
+  return "Classic";
 };
 
 const lookupTypeName = (type?: string) => {
@@ -242,6 +259,7 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
   await ensureConstantDataLoaded();
   const importedAt = new Date().toISOString();
   const fileArray = Array.from(files);
+  const sourceNames = fileArray.map((file) => file.name);
   const characters: CharacterData[] = [];
   const stashes: Array<{ fileName: string; data: StashData }> = [];
 
@@ -293,6 +311,7 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
       name: character.header.name,
       className: character.header.class,
       level: character.header.level,
+      ruleset: classifyRuleset(character, sourceNames),
       equippedHr: Number(characterValues.filter((item) => item.location === "equipped").reduce((a, b) => a + b.valueHr, 0).toFixed(3)),
       stashHr: Number(
         characterValues.filter((item) => item.location !== "equipped").reduce((a, b) => a + b.valueHr, 0).toFixed(3),

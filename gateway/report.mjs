@@ -33,6 +33,23 @@ const runewordRecipes = {
   Spirit: ["Tal", "Thul", "Ort", "Amn"],
 };
 
+const isRotwEnvironment = (saveDir, files = []) => {
+  const haystack = `${saveDir} ${files.map((file) => file.name ?? "").join(" ")}`.toLowerCase();
+  return haystack.includes("rotw") || haystack.includes("d2rmm_solo") || haystack.includes("modernsharedstash");
+};
+
+const classifyRuleset = (character, saveDir, files) => {
+  if (isRotwEnvironment(saveDir, files)) {
+    return "ROTW";
+  }
+
+  if (character.header?.status?.expansion) {
+    return "LoD";
+  }
+
+  return "Classic";
+};
+
 const normalizeMarketName = (value) =>
   String(value ?? "")
     .trim()
@@ -438,6 +455,7 @@ export const buildGatewayReport = async (saveDir) => {
       name: character.header.name,
       className: character.header.class,
       level: character.header.level,
+      ruleset: classifyRuleset(character, saveDir, files),
       equippedHr: Number(characterValues.filter((item) => item.location === "equipped").reduce((a, b) => a + b.valueHr, 0).toFixed(3)),
       stashHr: Number(characterValues.filter((item) => item.location !== "equipped").reduce((a, b) => a + b.valueHr, 0).toFixed(3)),
     });
