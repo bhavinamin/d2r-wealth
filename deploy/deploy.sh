@@ -9,7 +9,9 @@ CURRENT_LINK="${APP_ROOT}/current"
 mkdir -p "${APP_ROOT}/releases" "${SHARED_DIR}/data"
 
 cd "${RELEASE_DIR}"
-npm ci
+npm ci --ignore-scripts
+node ./scripts/patch-d2-parser.mjs
+npm rebuild better-sqlite3
 npm run build
 
 ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
