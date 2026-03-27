@@ -196,6 +196,9 @@
       const autoStart = document.getElementById("autoStart");
       const statusGrid = document.getElementById("status-grid");
       const settingsForm = document.getElementById("settings-form");
+      let saveDirDirty = false;
+      let syncTokenDirty = false;
+      let autoStartDirty = false;
 
       const renderStatus = (status) => {
         statusGrid.innerHTML = `
@@ -231,11 +234,29 @@
       };
 
       const applyStatus = (status) => {
-        saveDir.value = status.saveDir ?? "";
-        syncToken.value = status.syncToken ?? "";
-        autoStart.checked = Boolean(status.autoStart);
+        if (!saveDirDirty && document.activeElement !== saveDir) {
+          saveDir.value = status.saveDir ?? "";
+        }
+        if (!syncTokenDirty && document.activeElement !== syncToken) {
+          syncToken.value = status.syncToken ?? "";
+        }
+        if (!autoStartDirty && document.activeElement !== autoStart) {
+          autoStart.checked = Boolean(status.autoStart);
+        }
         renderStatus(status);
       };
+
+      saveDir.addEventListener("input", () => {
+        saveDirDirty = true;
+      });
+
+      syncToken.addEventListener("input", () => {
+        syncTokenDirty = true;
+      });
+
+      autoStart.addEventListener("change", () => {
+        autoStartDirty = true;
+      });
 
       settingsForm.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -244,6 +265,9 @@
           syncToken: syncToken.value,
           autoStart: autoStart.checked,
         });
+        saveDirDirty = false;
+        syncTokenDirty = false;
+        autoStartDirty = false;
         applyStatus(next);
       });
 
@@ -251,6 +275,7 @@
         const nextSaveDir = await window.gatewayTray.browseSaveDir();
         if (nextSaveDir) {
           saveDir.value = nextSaveDir;
+          saveDirDirty = true;
         }
       });
 
