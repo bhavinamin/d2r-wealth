@@ -16,6 +16,7 @@ let isQuitting = false;
 let connectedViewers = 0;
 
 const trayEntryArg = path.join(__dirname, "tray.mjs");
+const gatewayServerEntry = path.join(__dirname, "server.mjs");
 const trayIconPaths = {
   connected: path.join(__dirname, "assets", "tray-icon-connected.png"),
   disconnected: path.join(__dirname, "assets", "tray-icon-disconnected.png"),
@@ -34,21 +35,18 @@ const gatewayEndpoint = () => {
 const dashboardLaunchUrl = () => {
   const settings = currentSettings();
   const url = new URL(settings.dashboardUrl);
-  if (settings.syncEnabled && settings.backendUrl && settings.accountId) {
+  if (settings.backendUrl) {
     url.searchParams.set("backend", settings.backendUrl);
-    url.searchParams.set("account", settings.accountId);
-  } else {
-    url.searchParams.set("gateway", gatewayEndpoint());
   }
   return url.toString();
 };
 const backendPortalUrl = () => `${currentSettings().backendUrl.replace(/\/+$/, "")}/portal`;
 
-const notify = (title, body) => {
+const notify = (title, body, connected = connectedViewers > 0) => {
   if (!Notification.isSupported()) {
     return;
   }
-  new Notification({ title, body, icon: trayIconPaths.connected }).show();
+  new Notification({ title, body, icon: connected ? trayIconPaths.connected : trayIconPaths.disconnected }).show();
 };
 
 const applyAutoStart = (enabled) => {
@@ -115,7 +113,10 @@ const startGatewayEvents = () => {
       port: url.port,
       path: url.pathname,
       method: "GET",
-      headers: { Accept: "text/event-stream" },
+      headers: {
+        Accept: "text/event-stream",
+        "X-D2-Gateway-Client": "tray",
+      },
     },
     (response) => {
       let buffer = "";
@@ -136,11 +137,11 @@ const startGatewayEvents = () => {
           if (eventName === "viewer-connected") {
             connectedViewers += 1;
             updateTrayIcon();
-            notify("D2 Wealth Gateway", `Dashboard connected from ${data.remoteAddress}`);
+            notify("D2 Wealth Gateway", `Dashboard connected from ${data.remoteAddress}`, true);
           } else if (eventName === "viewer-disconnected") {
             connectedViewers = Math.max(0, connectedViewers - 1);
             updateTrayIcon();
-            notify("D2 Wealth Gateway", `Dashboard disconnected from ${data.remoteAddress}`);
+            notify("D2 Wealth Gateway", `Dashboard disconnected from ${data.remoteAddress}`, false);
           } else if (eventName === "settings-changed" || eventName === "backend-sync" || eventName === "files-changed" || eventName === "ready") {
             void broadcastStatus();
           }
@@ -168,10 +169,15 @@ const startGatewayProcess = () => {
     return;
   }
 
-  gatewayProcess = spawn("node", [path.join(__dirname, "server.mjs")], {
-    cwd: process.cwd(),
+  gatewayProcess = spawn(process.execPath, [gatewayServerEntry], {
+    cwd: app.isPackaged ? process.resourcesPath : process.cwd(),
     windowsHide: true,
     stdio: "ignore",
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: "1",
+      D2_GATEWAY_SETTINGS_PATH: path.join(app.getPath("userData"), "settings.json"),
+    },
   });
 
   gatewayProcess.on("exit", () => {
@@ -296,7 +302,7 @@ const bootstrap = async () => {
     startGatewayEvents();
     void broadcastStatus();
   }, 1500);
-  notify("D2 Wealth Gateway", "Gateway is running in the Windows system tray.");
+  notify("D2 Wealth Gateway", "Gateway is running in the Windows system tray.", false);
 };
 
 app.whenReady().then(async () => {

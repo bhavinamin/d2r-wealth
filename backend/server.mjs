@@ -349,19 +349,21 @@ const server = http.createServer(async (request, response) => {
 
     try {
       const payload = JSON.parse(await readBody(request));
-      if (!payload.accountId || !payload.clientId || !payload.report) {
-        sendJson(request, response, 400, { error: "Missing accountId, clientId, or report." });
+      if (!payload.report) {
+        sendJson(request, response, 400, { error: "Missing report." });
         return;
       }
 
-      if (String(payload.accountId) !== tokenRow.account_id) {
+      const accountId = String(payload.accountId ?? tokenRow.account_id);
+      if (accountId !== tokenRow.account_id) {
         sendJson(request, response, 403, { error: "Gateway token does not match target account." });
         return;
       }
 
+      const clientId = String(payload.clientId ?? "gateway");
       const latest = ingestAccountReport({
-        accountId: String(payload.accountId),
-        clientId: String(payload.clientId),
+        accountId,
+        clientId,
         report: payload.report,
         receivedAt: new Date().toISOString(),
       });

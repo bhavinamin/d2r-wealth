@@ -48,7 +48,6 @@ const istThreshold = market.runeValues.Ist ?? 0.125;
 const smallestRuneValue = runeTradeScale.find((rune) => rune.valueHr > 0)?.valueHr ?? 0.003125;
 const hrTickSize = smallestRuneValue;
 const EQUIPPED_DROP_GUARD_HR = 0.05;
-const GATEWAY_URL_KEY = "d2-wealth-gateway-url";
 const BACKEND_URL_KEY = "d2-wealth-backend-url";
 const ACCOUNT_ID_KEY = "d2-wealth-account-id";
 
@@ -119,19 +118,6 @@ const toTradeBreakdown = (valueHr: number) => {
   return tags;
 };
 
-const gatewayStatusClass = (status: string) => {
-  if (status === "Connected") {
-    return "status-connected";
-  }
-  if (status === "Syncing...") {
-    return "status-syncing";
-  }
-  if (status === "Error") {
-    return "status-error";
-  }
-  return "status-idle";
-};
-
 const deriveGatewayUrl = () => {
   if (typeof window === "undefined") {
     return "http://127.0.0.1:3187";
@@ -143,7 +129,7 @@ const deriveGatewayUrl = () => {
     return fromQuery;
   }
 
-  return window.localStorage.getItem(GATEWAY_URL_KEY) || "http://127.0.0.1:3187";
+  return "http://127.0.0.1:3187";
 };
 
 const deriveBackendConfig = () => {
@@ -167,7 +153,6 @@ const derivePreviewDashboard = () => {
 };
 
 const portraitForClass = (className: string) => classPortraits[className.toLowerCase()] ?? sorceressPortrait;
-const shouldShowManualImport = (status: string) => status !== "Connected" && status !== "Syncing...";
 const rulesetClass = (ruleset: "Classic" | "LoD" | "ROTW") => {
   if (ruleset === "ROTW") {
     return "ruleset-rotw";
@@ -353,8 +338,7 @@ function GettingStarted(props: {
     <section className="landing-shell">
       <section className="landing-hero">
         <img className="landing-logo" src={d2rLogo} alt="Diablo II Resurrected" />
-        <p className="eyebrow">Offline account tracking for Diablo II: Resurrected</p>
-        <h1>See your account at a glance.</h1>
+        <h3 className="landing-section-title">Offline Account Tracking For Diablo II: Resurrected</h3>
         <p className="landing-copy">
           Built for offline characters using the{" "}
           <a href="https://www.nexusmods.com/diablo2resurrected/mods/964?tab=posts" target="_blank" rel="noreferrer">
@@ -362,6 +346,12 @@ function GettingStarted(props: {
           </a>
           . Item trade values follow the mod, while rune-based net worth is normalized against live market data.
         </p>
+        <ul className="landing-features">
+          <li>Account overview</li>
+          <li>Character roster</li>
+          <li>Highest-value stash and inventory tables</li>
+          <li>Rune inventory and wealth tracking</li>
+        </ul>
         <div className="landing-preview-frame">
           <img className="landing-preview-image" src={dashboardPreview} alt="Authenticated D2 Wealth dashboard preview" />
         </div>
@@ -390,16 +380,16 @@ function GettingStarted(props: {
           <span className="landing-step-number">{props.stepTwoReady ? "✓" : "2"}</span>
           <div>
             <h3>Set up the local gateway</h3>
-            <p>Open the Windows tray app, point it at your D2R save folder, then set the backend host and your account sync token.</p>
-            <div className="landing-step-status">{props.stepTwoReady ? "Gateway detected locally." : "Waiting for local gateway."}</div>
+            <p>Open the Windows tray app, point it at your D2R save folder, and paste the sync token from Step 1.</p>
+            <div className="landing-step-status">{props.stepTwoReady ? "Gateway is configured for backend sync." : "Waiting for a tokened local gateway."}</div>
             {!props.stepTwoReady ? (
               <div className="landing-step-help">
                 <strong>What is the local gateway?</strong>
                 <ul className="landing-step-list">
                   <li>Install and launch the D2 Wealth Gateway tray app.</li>
                   <li>Set the save folder to <code>Saved Games\Diablo II Resurrected</code>.</li>
-                  <li>Set the backend host to <code>{window.location.origin.replace(/:\d+$/, ":3197")}</code>.</li>
-                  <li>Paste your sync token and leave the gateway running in the tray.</li>
+                  <li>Paste your sync token from the account portal.</li>
+                  <li>Leave the gateway running in the tray.</li>
                 </ul>
               </div>
             ) : null}
@@ -426,14 +416,12 @@ export default function App() {
   const backendConfig = deriveBackendConfig();
   const previewDashboard = derivePreviewDashboard();
   const effectiveBackendUrl = backendConfig.backendUrl || "http://127.0.0.1:3197";
-  const backendMode = Boolean(backendConfig.backendUrl);
+  const backendMode = true;
   const [report, setReport] = useState<WealthReport | null>(null);
   const [history, setHistory] = useState<WealthSnapshot[]>([]);
-  const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState<"overview" | "loot">("overview");
   const [gatewayUrl] = useState(deriveGatewayUrl);
-  const [gatewayStatus, setGatewayStatus] = useState<string>("Disconnected");
   const [backendStatus, setBackendStatus] = useState<string>(backendMode ? "Connecting..." : "Idle");
   const [authRequired, setAuthRequired] = useState(false);
   const [user, setUser] = useState<BackendUser | null>(null);
@@ -441,8 +429,6 @@ export default function App() {
   const [selectedAccountId, setSelectedAccountId] = useState(backendConfig.accountId);
   const [gatewayReady, setGatewayReady] = useState(false);
   const [dashboardUnlocked, setDashboardUnlocked] = useState(false);
-  const gatewayEventsRef = useRef<EventSource | null>(null);
-  const retryTimerRef = useRef<number | null>(null);
   const autoConnectStartedRef = useRef(false);
   const backendPollTimerRef = useRef<number | null>(null);
   const gatewayProbeTimerRef = useRef<number | null>(null);
@@ -467,10 +453,6 @@ export default function App() {
 
   useEffect(() => {
     return () => {
-      gatewayEventsRef.current?.close();
-      if (retryTimerRef.current) {
-        window.clearTimeout(retryTimerRef.current);
-      }
       if (backendPollTimerRef.current) {
         window.clearTimeout(backendPollTimerRef.current);
       }
@@ -489,8 +471,9 @@ export default function App() {
         if (!response.ok) {
           throw new Error(`Gateway health failed with ${response.status}.`);
         }
+        const payload = (await response.json()) as { syncToken?: string };
         if (!cancelled) {
-          setGatewayReady(true);
+          setGatewayReady(Boolean(payload.syncToken));
         }
       } catch {
         if (!cancelled) {
@@ -518,28 +501,6 @@ export default function App() {
       setReport(nextReport);
       setHistory(nextHistory);
     });
-  };
-
-  const importFiles = async (files: FileList | File[]) => {
-    const { parseAccountFiles } = await import("./lib/d2.js");
-    const nextReport = await parseAccountFiles(files);
-    applyReport(nextReport);
-  };
-
-  const fetchGatewaySnapshot = async (baseUrl: string) => {
-    const manifestResponse = await fetch(`${baseUrl}/manifest`);
-    if (!manifestResponse.ok) {
-      throw new Error(`Gateway manifest request failed with ${manifestResponse.status}.`);
-    }
-
-    await manifestResponse.json();
-    const reportResponse = await fetch(`${baseUrl}/report`);
-    if (!reportResponse.ok) {
-      throw new Error(`Gateway report request failed with ${reportResponse.status}.`);
-    }
-
-    const nextReport = (await reportResponse.json()) as WealthReport;
-    applyReport(nextReport);
   };
 
   const fetchBackendAccount = async (baseUrl: string, accountId: string) => {
@@ -685,119 +646,6 @@ export default function App() {
     };
   };
 
-  const refreshGatewaySnapshot = async (baseUrl: string) => {
-    let lastReport: WealthReport | null = null;
-
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const manifestResponse = await fetch(`${baseUrl}/manifest`);
-      if (!manifestResponse.ok) {
-        throw new Error(`Gateway manifest request failed with ${manifestResponse.status}.`);
-      }
-      await manifestResponse.json();
-
-      const reportResponse = await fetch(`${baseUrl}/report`);
-      if (!reportResponse.ok) {
-        throw new Error(`Gateway report request failed with ${reportResponse.status}.`);
-      }
-
-      const rawReport = (await reportResponse.json()) as WealthReport;
-      const nextReport = stabilizeAgainstHistory(rawReport);
-      lastReport = nextReport;
-
-      if ((!isSuspiciousDrop(reportRef.current, nextReport) && !isDegradedAutoReport(reportRef.current, nextReport)) || attempt === 2) {
-        applyReport(nextReport);
-        return;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-    }
-
-    if (lastReport) {
-      applyReport(lastReport);
-    }
-  };
-
-  const onImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files?.length) {
-      return;
-    }
-
-    setIsBusy(true);
-    setError(null);
-
-    try {
-      await importFiles(files);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Import failed.");
-    } finally {
-      setIsBusy(false);
-      event.target.value = "";
-    }
-  };
-
-  const scheduleGatewayRetry = () => {
-    if (retryTimerRef.current) {
-      return;
-    }
-
-    retryTimerRef.current = window.setTimeout(() => {
-      retryTimerRef.current = null;
-      void connectGateway(true);
-    }, 5000);
-  };
-
-  const connectGateway = async (silent = false) => {
-    setIsBusy(true);
-    if (!silent) {
-      setError(null);
-    }
-    setGatewayStatus("Connecting...");
-
-    try {
-      const baseUrl = gatewayUrl.replace(/\/+$/, "");
-      window.localStorage.setItem(GATEWAY_URL_KEY, baseUrl);
-      await refreshGatewaySnapshot(baseUrl);
-      if (retryTimerRef.current) {
-        window.clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
-      }
-      setGatewayStatus("Connected");
-
-      gatewayEventsRef.current?.close();
-      const eventSource = new EventSource(`${baseUrl}/events`);
-      gatewayEventsRef.current = eventSource;
-      eventSource.addEventListener("ready", (event) => {
-        void JSON.parse((event as MessageEvent).data);
-      });
-      eventSource.addEventListener("files-changed", async (event) => {
-        setGatewayStatus("Syncing...");
-        try {
-          void JSON.parse((event as MessageEvent).data);
-          await refreshGatewaySnapshot(baseUrl);
-          setGatewayStatus("Connected");
-        } catch (caught) {
-          setGatewayStatus("Error");
-          setError(caught instanceof Error ? caught.message : "Gateway refresh failed.");
-        }
-      });
-      eventSource.onerror = () => {
-        setGatewayStatus("Disconnected");
-        eventSource.close();
-        gatewayEventsRef.current = null;
-        scheduleGatewayRetry();
-      };
-    } catch (caught) {
-      setGatewayStatus("Error");
-      if (!silent) {
-        setError(caught instanceof Error ? caught.message : "Gateway connection failed.");
-      }
-      scheduleGatewayRetry();
-    } finally {
-      setIsBusy(false);
-    }
-  };
-
   const signInWithDiscord = () => {
     window.location.href = `${effectiveBackendUrl.replace(/\/+$/, "")}/auth/discord/start?returnTo=${encodeURIComponent(window.location.href)}`;
   };
@@ -843,7 +691,7 @@ export default function App() {
     if (backendMode) {
       const pollBackend = async () => {
         try {
-          const mePayload = await fetchBackendMe(backendConfig.backendUrl);
+          const mePayload = await fetchBackendMe(effectiveBackendUrl);
           setUser(mePayload.user);
           setAccounts(mePayload.accounts);
           setAuthRequired(false);
@@ -861,7 +709,7 @@ export default function App() {
           }
 
           setBackendStatus("Syncing...");
-          await fetchBackendAccount(backendConfig.backendUrl, nextAccountId);
+          await fetchBackendAccount(effectiveBackendUrl, nextAccountId);
           setBackendStatus("Connected");
         } catch (caught) {
           if (caught instanceof Error && caught.message === "AUTH_REQUIRED") {
@@ -887,8 +735,7 @@ export default function App() {
       return;
     }
 
-    void connectGateway(true);
-  }, []);
+  }, [backendMode, previewDashboard, effectiveBackendUrl]);
 
   useEffect(() => {
     if (!backendMode || !user || !selectedAccountId) {
@@ -897,7 +744,7 @@ export default function App() {
 
     let cancelled = false;
     setBackendStatus("Syncing...");
-    void fetchBackendAccount(backendConfig.backendUrl, selectedAccountId)
+    void fetchBackendAccount(effectiveBackendUrl, selectedAccountId)
       .then(() => {
         if (!cancelled) {
           setBackendStatus("Connected");
@@ -913,7 +760,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [backendMode, user, selectedAccountId, previewDashboard]);
+  }, [backendMode, user, selectedAccountId, previewDashboard, effectiveBackendUrl]);
 
   const stepOneReady = !!user && !authRequired;
   const stepTwoReady = gatewayReady;
@@ -954,31 +801,15 @@ export default function App() {
                 </div>
               </section>
 
-              {!backendMode && shouldShowManualImport(gatewayStatus) ? (
-                <label className="dropzone compact control-panel">
-                  <input type="file" multiple accept=".d2s,.d2i,.sss,.cst" onChange={onImport} />
-                  <span>{isBusy ? "Parsing saves..." : "Choose save + stash files"}</span>
-                  <small>Manual import for offline characters and stash files.</small>
-                </label>
-              ) : null}
-
               <section className="gateway-card control-panel">
                 <div className="panel-header compact-header">
-                  <h3>{backendMode ? "Synced Backend" : "Local Gateway"}</h3>
-                  <span className={`gateway-status ${gatewayStatusClass(backendMode ? backendStatus : gatewayStatus)}`}>
-                    {backendMode ? backendStatus : gatewayStatus}
+                  <h3>Synced Backend</h3>
+                  <span className={`gateway-status ${backendStatus === "Connected" ? "status-connected" : backendStatus === "Syncing..." ? "status-syncing" : backendStatus === "Error" ? "status-error" : "status-idle"}`}>
+                    {backendStatus}
                   </span>
                 </div>
                 <small>
-                  {backendMode ? (
-                    <>
-                      Account <code>{backendConfig.accountId}</code> via <code>{backendConfig.backendUrl}</code>
-                    </>
-                  ) : (
-                    <>
-                      Managed by the tray gateway app. Endpoint: <code>{gatewayUrl}</code>
-                    </>
-                  )}
+                  Account data is served through the authenticated backend. The local gateway only syncs in the tray and is never directly connected from the browser.
                 </small>
               </section>
             </div>

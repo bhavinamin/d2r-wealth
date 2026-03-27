@@ -1,8 +1,11 @@
 {
   "name": "d2-wealth",
   "version": "0.1.0",
+  "description": "Windows tray gateway for the D2 Wealth offline account tracker.",
+  "author": "OpenAI Codex",
   "private": true,
   "type": "module",
+  "main": "gateway/tray.mjs",
   "scripts": {
     "postinstall": "node ./scripts/patch-d2-parser.mjs",
     "predev": "npm run generate:market",
@@ -13,7 +16,8 @@
     "generate:market": "node ./scripts/generate-market.mjs",
     "backend": "node ./backend/server.mjs",
     "gateway": "node ./gateway/server.mjs",
-    "gateway:tray": "electron ./gateway/tray.mjs"
+    "gateway:tray": "electron ./gateway/tray.mjs",
+    "dist:gateway": "npm run generate:market && electron-builder --win msi"
   },
   "dependencies": {
     "@d2runewizard/d2s": "^2.0.130",
@@ -26,8 +30,39 @@
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.1.0",
     "electron": "^41.1.0",
+    "electron-builder": "^26.0.12",
+    "png-to-ico": "^3.0.1",
     "typescript": "^5.9.3",
     "vite": "^7.1.12",
     "xlsx": "^0.18.5"
+  },
+  "build": {
+    "appId": "com.d2wealth.gateway",
+    "productName": "D2 Wealth Gateway",
+    "npmRebuild": false,
+    "files": [
+      "gateway/**/*",
+      "src/generated/market-data.json",
+      "node_modules/**/*",
+      "package.json",
+      "!backend/**/*",
+      "!node_modules/better-sqlite3/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "icon": "gateway/assets/app-icon.ico",
+      "signAndEditExecutable": false,
+      "target": [
+        "msi"
+      ],
+      "artifactName": "D2-Wealth-Gateway-${version}.${ext}"
+    },
+    "msi": {
+      "artifactName": "D2-Wealth-Gateway-${version}.${ext}",
+      "perMachine": false,
+      "warningsAsErrors": false
+    }
   }
 }

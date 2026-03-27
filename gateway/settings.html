@@ -106,8 +106,23 @@
         background: rgba(255, 255, 255, 0.08);
       }
 
+      textarea,
       .status-grid {
         display: grid;
+      }
+
+      textarea {
+        min-height: 86px;
+        resize: vertical;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.05);
+        color: inherit;
+        padding: 10px 12px;
+        font: inherit;
+      }
+
+      .status-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 12px;
       }
@@ -152,48 +167,13 @@
           </label>
 
           <label>
-            Host
-            <input id="host" name="host" />
-          </label>
-
-          <label>
-            Port
-            <input id="port" name="port" type="number" min="1" max="65535" />
-          </label>
-
-          <label>
-            Dashboard URL
-            <input id="dashboardUrl" name="dashboardUrl" />
-          </label>
-
-          <label>
-            Backend URL
-            <input id="backendUrl" name="backendUrl" />
-          </label>
-
-          <label>
-            Account ID
-            <input id="accountId" name="accountId" />
-          </label>
-
-          <label>
-            Client ID
-            <input id="clientId" name="clientId" />
-          </label>
-
-          <label>
             Sync Token
-            <input id="syncToken" name="syncToken" />
+            <textarea id="syncToken" name="syncToken" placeholder="Paste the token from the account portal"></textarea>
           </label>
 
           <label class="toggle-row">
             <input id="autoStart" name="autoStart" type="checkbox" />
             <span>Start gateway automatically when Windows starts</span>
-          </label>
-
-          <label class="toggle-row">
-            <input id="syncEnabled" name="syncEnabled" type="checkbox" />
-            <span>Sync snapshots to backend</span>
           </label>
 
           <div class="actions">
@@ -212,15 +192,8 @@
 
     <script>
       const saveDir = document.getElementById("saveDir");
-      const host = document.getElementById("host");
-      const port = document.getElementById("port");
-      const dashboardUrl = document.getElementById("dashboardUrl");
-      const backendUrl = document.getElementById("backendUrl");
-      const accountId = document.getElementById("accountId");
-      const clientId = document.getElementById("clientId");
       const syncToken = document.getElementById("syncToken");
       const autoStart = document.getElementById("autoStart");
-      const syncEnabled = document.getElementById("syncEnabled");
       const statusGrid = document.getElementById("status-grid");
       const settingsForm = document.getElementById("settings-form");
 
@@ -231,32 +204,24 @@
             <strong class="${status.running ? "ok" : ""}">${status.running ? "Running" : "Stopped"}</strong>
           </article>
           <article class="status-card">
-            <span class="small">Endpoint</span>
-            <strong>http://${status.host}:${status.port}</strong>
+            <span class="small">Sync</span>
+            <strong>${status.syncToken ? "Configured" : "Needs token"}</strong>
           </article>
           <article class="status-card">
             <span class="small">Files Seen</span>
             <strong>${status.files.length}</strong>
           </article>
           <article class="status-card">
-            <span class="small">Watching</span>
+            <span class="small">Save Folder</span>
             <strong>${status.saveDir}</strong>
-          </article>
-          <article class="status-card">
-            <span class="small">Dashboard</span>
-            <strong>${status.dashboardUrl}</strong>
           </article>
           <article class="status-card">
             <span class="small">Startup</span>
             <strong>${status.autoStart ? "Enabled" : "Disabled"}</strong>
           </article>
           <article class="status-card">
-            <span class="small">Backend Sync</span>
-            <strong>${status.syncEnabled ? "Enabled" : "Disabled"}</strong>
-          </article>
-          <article class="status-card">
-            <span class="small">Account</span>
-            <strong>${status.accountId}</strong>
+            <span class="small">Client</span>
+            <strong>${status.clientId}</strong>
           </article>
           <article class="status-card">
             <span class="small">Last Sync</span>
@@ -267,15 +232,8 @@
 
       const applyStatus = (status) => {
         saveDir.value = status.saveDir ?? "";
-        host.value = status.host ?? "";
-        port.value = status.port ?? 3187;
-        dashboardUrl.value = status.dashboardUrl ?? "";
-        backendUrl.value = status.backendUrl ?? "";
-        accountId.value = status.accountId ?? "";
-        clientId.value = status.clientId ?? "";
         syncToken.value = status.syncToken ?? "";
         autoStart.checked = Boolean(status.autoStart);
-        syncEnabled.checked = Boolean(status.syncEnabled);
         renderStatus(status);
       };
 
@@ -283,15 +241,8 @@
         event.preventDefault();
         const next = await window.gatewayTray.saveSettings({
           saveDir: saveDir.value,
-          host: host.value,
-          port: Number(port.value),
-          dashboardUrl: dashboardUrl.value,
-          backendUrl: backendUrl.value,
-          accountId: accountId.value,
-          clientId: clientId.value,
           syncToken: syncToken.value,
           autoStart: autoStart.checked,
-          syncEnabled: syncEnabled.checked,
         });
         applyStatus(next);
       });

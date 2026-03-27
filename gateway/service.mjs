@@ -58,7 +58,7 @@ export class GatewayService {
   }
 
   async syncToBackend() {
-    if (!this.settings.syncEnabled || !this.settings.backendUrl || !this.settings.syncToken) {
+    if (!this.settings.backendUrl || !this.settings.syncToken) {
       return null;
     }
 
@@ -76,7 +76,6 @@ export class GatewayService {
             Authorization: `Bearer ${this.settings.syncToken}`,
           },
           body: JSON.stringify({
-            accountId: this.settings.accountId,
             clientId: this.settings.clientId,
             report,
           }),
@@ -91,7 +90,6 @@ export class GatewayService {
         this.sendEvent("backend-sync", {
           syncedAt: this.lastBackendSyncAt,
           backendUrl: this.settings.backendUrl,
-          accountId: this.settings.accountId,
           clientId: this.settings.clientId,
         });
         return report;
@@ -192,7 +190,7 @@ export class GatewayService {
       await this.restartServer();
     }
 
-    if (merged.syncEnabled) {
+    if (merged.syncToken) {
       void this.syncToBackend().catch(() => {});
     }
 
@@ -268,6 +266,8 @@ export class GatewayService {
 
     if (url.pathname === "/events") {
       const remoteAddress = request.socket.remoteAddress ?? "unknown";
+      const clientType = String(request.headers["x-d2-gateway-client"] ?? "").toLowerCase();
+      const isInternalClient = clientType === "tray";
       response.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
@@ -276,12 +276,16 @@ export class GatewayService {
       });
       response.write(`event: ready\ndata: ${JSON.stringify(this.status())}\n\n`);
       this.clients.add(response);
-      this.sendEvent("viewer-connected", { remoteAddress, connectedAt: new Date().toISOString() });
-      this.onClientConnected?.({ remoteAddress });
+      if (!isInternalClient) {
+        this.sendEvent("viewer-connected", { remoteAddress, connectedAt: new Date().toISOString() });
+        this.onClientConnected?.({ remoteAddress });
+      }
       request.on("close", () => {
         this.clients.delete(response);
-        this.sendEvent("viewer-disconnected", { remoteAddress, disconnectedAt: new Date().toISOString() });
-        this.onClientDisconnected?.({ remoteAddress });
+        if (!isInternalClient) {
+          this.sendEvent("viewer-disconnected", { remoteAddress, disconnectedAt: new Date().toISOString() });
+          this.onClientDisconnected?.({ remoteAddress });
+        }
       });
       return;
     }

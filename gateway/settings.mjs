@@ -2,21 +2,28 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const DEFAULT_SAVE_DIR = String.raw`C:\Users\Bhavin\Saved Games\Diablo II Resurrected\mods\D2RMM_SOLO`;
+const DEFAULT_SAVE_DIR = path.join(os.homedir(), "Saved Games", "Diablo II Resurrected");
+const appDataRoot = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
+const defaultSettingsRoot = process.env.D2_GATEWAY_SETTINGS_DIR
+  ? path.resolve(process.env.D2_GATEWAY_SETTINGS_DIR)
+  : process.versions.electron
+    ? path.join(appDataRoot, "D2 Wealth Gateway")
+    : path.resolve(process.cwd(), "gateway");
 export const DEFAULT_GATEWAY_SETTINGS = {
   host: "127.0.0.1",
   port: 3187,
   saveDir: DEFAULT_SAVE_DIR,
   autoStart: false,
-  dashboardUrl: "http://127.0.0.1:5173",
-  backendUrl: "http://127.0.0.1:3197",
-  accountId: "default-account",
+  dashboardUrl: process.env.D2_GATEWAY_DASHBOARD_URL || "http://127.0.0.1:5173",
+  backendUrl: process.env.D2_GATEWAY_BACKEND_URL || "http://127.0.0.1:3197",
+  accountId: "",
   clientId: os.hostname().toLowerCase(),
-  syncEnabled: false,
   syncToken: "",
 };
 
-export const DEFAULT_SETTINGS_PATH = path.resolve(process.cwd(), "gateway", "settings.json");
+export const DEFAULT_SETTINGS_PATH = process.env.D2_GATEWAY_SETTINGS_PATH
+  ? path.resolve(process.env.D2_GATEWAY_SETTINGS_PATH)
+  : path.join(defaultSettingsRoot, "settings.json");
 
 const sanitizePort = (value) => {
   const port = Number(value);
@@ -45,15 +52,11 @@ const sanitizeBackendUrl = (value) => {
   const backendUrl = String(value ?? "").trim();
   return backendUrl || DEFAULT_GATEWAY_SETTINGS.backendUrl;
 };
-const sanitizeAccountId = (value) => {
-  const accountId = String(value ?? "").trim();
-  return accountId || DEFAULT_GATEWAY_SETTINGS.accountId;
-};
+const sanitizeAccountId = (value) => String(value ?? "").trim();
 const sanitizeClientId = (value) => {
   const clientId = String(value ?? "").trim();
   return clientId || DEFAULT_GATEWAY_SETTINGS.clientId;
 };
-const sanitizeSyncEnabled = (value) => Boolean(value);
 const sanitizeSyncToken = (value) => String(value ?? "").trim();
 
 export const normalizeGatewaySettings = (input = {}) => ({
@@ -65,7 +68,6 @@ export const normalizeGatewaySettings = (input = {}) => ({
   backendUrl: sanitizeBackendUrl(input.backendUrl),
   accountId: sanitizeAccountId(input.accountId),
   clientId: sanitizeClientId(input.clientId),
-  syncEnabled: sanitizeSyncEnabled(input.syncEnabled),
   syncToken: sanitizeSyncToken(input.syncToken),
 });
 

@@ -24,18 +24,19 @@ It reads character saves and shared stash files, prices runes in `HR`, values eq
 ## What Works
 
 - Local gateway watching a live D2R save folder
-- Tray-hosted Windows gateway with persistent `gateway/settings.json` for `host`, `port`, and `saveDir`
-- Multi-client backend ingest keyed by `accountId` and `clientId`
-- Dashboard backend mode that reads account `latest` and `history` from the backend instead of localhost
+- Tray-hosted Windows gateway with a simplified settings UI for `saveDir`, `syncToken`, and auto-start
+- Dashboard/backend-first flow with Discord sign-in and no browser-side localhost connect step
+- Multi-client backend ingest keyed by gateway sync tokens rather than browser sessions
 - SQLite-backed backend storage for users, sessions, accounts, gateway tokens, snapshots, and market tables
 - Shared stash material parsing for runes and stackable items
 - Shared stash valuation for keys, essences, gems, and worldstone shards
 - Equipped gear valuation, including runeword recipe fallback like `Enigma`
 - Ranked character stash and shared stash value tables
 - Separate carried inventory view so identified loot in inventory does not masquerade as stash value
-- Wealth history chart stored locally in the browser
+- Wealth history chart served from synced account history
 - Rune inventory with exact trade-equivalent breakdown tags
 - Character roster tags for `Classic`, `LoD`, or `ROTW`
+- Windows MSI packaging for the tray gateway
 
 ## Known Limits
 
@@ -80,7 +81,7 @@ CLI fallback:
 npm run gateway
 ```
 
-Gateway settings live in:
+Gateway settings live in the user-scoped tray config when packaged, and in:
 
 - [gateway/settings.json](C:\Users\Bhavin\Documents\dev\d2-wealth\gateway\settings.json)
 
@@ -95,7 +96,7 @@ Expected inputs include:
 
 The gateway is intended to point at a live D2R save directory such as:
 
-- `C:\Users\Bhavin\Saved Games\Diablo II Resurrected\mods\D2RMM_SOLO`
+- `C:\Users\Bhavin\Saved Games\Diablo II Resurrected`
 
 ## Repo Notes
 
@@ -104,10 +105,11 @@ The gateway is intended to point at a live D2R save directory such as:
 - `gateway/report.mjs` is the authoritative gateway-side parser and valuation path
 - `gateway/service.mjs` owns the reusable HTTP/SSE gateway service and live watcher
 - `gateway/tray.mjs` wraps the gateway in a Windows tray app with a settings window
+- `gateway/tray.mjs` ignores its own internal event subscription so tray state only reflects real dashboard viewers
 - `backend/server.mjs` accepts gateway snapshot ingest and serves per-account latest/history views
 - `backend/db.mjs` owns the SQLite schema for auth, accounts, gateway tokens, snapshots, and market tables
 - `http://127.0.0.1:3197/portal` is the current lightweight Discord-authenticated account portal for minting gateway sync tokens
 - worldstone shard valuation currently comes from the installed Single Player Trading Market mod recipes
-- `src/App.tsx` contains the current dashboard behavior and trade-tag UI rules
-- `src/App.tsx` now separates the product into `Overview` and `Loot Ledger` views
+- `src/App.tsx` contains the auth-gated landing page, backend-driven dashboard behavior, and trade-tag UI rules
+- `src/App.tsx` separates the product into `Overview` and `Loot Ledger` views once the user is authenticated
 - `Loot Ledger` keeps character stash and carried inventory in separate panels

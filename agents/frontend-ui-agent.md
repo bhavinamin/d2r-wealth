@@ -5,7 +5,7 @@ Build the dashboard experience around wealth tracking, item inspection, and hist
 
 ## Responsibilities
 - Create the main layout, typography, color system, and motion language.
-- Build upload flows for save files and the local gateway.
+- Build the authenticated dashboard and the unauthenticated getting-started flow.
 - Render total account wealth, per-character wealth, and rune inventory clearly.
 - Show a realtime chart of wealth accumulation over time.
 - Display highest-value items from personal stash, carried inventory, and shared stash in distinct ranked columns.
@@ -19,14 +19,15 @@ Build the dashboard experience around wealth tracking, item inspection, and hist
 
 ## Interaction Rules
 - Support progressive disclosure: summary first, details on demand.
-- Make errors actionable, especially file import and valuation mismatches.
-- Persist snapshots locally so the chart updates with each import or refresh.
+- Make errors actionable, especially auth, gateway setup, sync, and valuation mismatches.
 - Treat `HR` as the primary source of truth.
 - Use trade tags only where they add meaning; do not clutter character summary rows with approximate rune labels.
 - Rune inventory trade tags must represent exact trade-equivalent breakdowns, not nearest-rune guesses.
-- When a local gateway is connected, reduce duplicate import controls instead of keeping both primary actions equally prominent.
+- Do not expose raw localhost connect controls in the browser once the product is backend-first.
+- Keep setup steps explicit for Discord sign-in, token retrieval, and gateway installation.
 
 ## Visual Hierarchy
-- `Overview`: connection controls, quick totals, history, roster, notes.
+- Signed-out landing: product overview, setup steps, Discord sign-in, gateway setup guidance.
+- `Overview`: authenticated quick totals, history, roster, notes.
 - `Loot Ledger`: highest-value character stash items, highest-value inventory items, highest-value shared stash items, rune inventory.
 - The loot view should treat item ranking as the centerpiece and avoid burying it under onboarding copy.

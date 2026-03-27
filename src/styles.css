@@ -119,6 +119,13 @@ code {
   color: #c88f4e;
 }
 
+.landing-section-title {
+  margin: 0 0 14px;
+  font-family: "Cinzel Decorative", "Times New Roman", serif;
+  font-size: 1rem;
+  color: #ebd3a8;
+}
+
 .masthead-text {
   margin: 0;
   color: rgba(244, 239, 228, 0.84);
@@ -689,7 +696,7 @@ code {
 }
 
 .landing-hero {
-  padding: 18px 20px 20px;
+  padding: 22px 24px 24px;
   align-self: start;
 }
 
@@ -710,7 +717,7 @@ code {
 }
 
 .landing-preview-frame {
-  margin-top: 14px;
+  margin-top: 20px;
   border-radius: 18px;
   overflow: hidden;
   border: 1px solid rgba(186, 133, 91, 0.18);
@@ -727,10 +734,10 @@ code {
 }
 
 .landing-copy {
-  margin: 0 0 10px;
+  margin: 0 0 16px;
   color: rgba(244, 239, 228, 0.76);
-  font-size: 0.9rem;
-  line-height: 1.5;
+  font-size: 0.92rem;
+  line-height: 1.65;
 }
 
 .landing-copy a {
@@ -740,6 +747,18 @@ code {
 
 .landing-copy a:hover {
   text-decoration: underline;
+}
+
+.landing-features {
+  margin: 0 0 18px;
+  padding-left: 18px;
+  color: rgba(244, 239, 228, 0.76);
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+
+.landing-features li + li {
+  margin-top: 4px;
 }
 
 .landing-guide {

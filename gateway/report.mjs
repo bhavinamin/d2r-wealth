@@ -1,12 +1,16 @@
+import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { read as readCharacter, setConstantData } from "@d2runewizard/d2s";
 import { read as readStash } from "@d2runewizard/d2s/lib/d2/stash.js";
 import { BitReader } from "@d2runewizard/d2s/lib/binary/bitreader.js";
 import { readItem, readItems } from "@d2runewizard/d2s/lib/d2/items.js";
 import { constants as constants96 } from "@d2runewizard/d2s/lib/data/versions/96_constant_data.js";
 import { constants as constants105 } from "@d2runewizard/d2s/lib/data/versions/105_constant_data.js";
-import { loadMarketDataFromDb } from "../backend/market-store.mjs";
-const market = loadMarketDataFromDb();
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const generatedMarketPath = path.resolve(__dirname, "..", "src", "generated", "market-data.json");
+const market = JSON.parse(fs.readFileSync(generatedMarketPath, "utf8"));
 
 setConstantData(96, constants96);
 setConstantData(105, constants105);
