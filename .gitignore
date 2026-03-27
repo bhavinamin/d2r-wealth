@@ -4,3 +4,8 @@ src/generated/market-data.json
 tsconfig.tsbuildinfo
 tmp-gateway.log
 tmp-vite.log
+backend/data/
+dashboard-preview-source*.png
+landing-debug*.png
+landing-final-check.png
+src/assets/dashboard-preview-crop-test*.png

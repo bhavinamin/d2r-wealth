@@ -1,5 +1,6 @@
 import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
 import d2rLogo from "./assets/d2r-logo.webp";
+import dashboardPreview from "./assets/dashboard-preview.png";
 import amazonPortrait from "./assets/classes/amazon.webp";
 import assassinPortrait from "./assets/classes/assassin.webp";
 import barbarianPortrait from "./assets/classes/barbarian.webp";
@@ -10,6 +11,18 @@ import sorceressPortrait from "./assets/classes/sorceress.webp";
 import { loadHistory, pushHistory } from "./lib/history.js";
 import { market } from "./lib/market.js";
 import type { ValuedItem, WealthReport, WealthSnapshot } from "./lib/types.js";
+
+type BackendUser = {
+  id: string;
+  username: string;
+  avatarUrl?: string | null;
+};
+
+type BackendAccount = {
+  id: string;
+  name: string;
+  role: string;
+};
 
 const formatHr = (value: number) => `${value.toFixed(value >= 1 ? 2 : 3)} HR`;
 const formatTime = (value: string) =>
@@ -35,6 +48,9 @@ const istThreshold = market.runeValues.Ist ?? 0.125;
 const smallestRuneValue = runeTradeScale.find((rune) => rune.valueHr > 0)?.valueHr ?? 0.003125;
 const hrTickSize = smallestRuneValue;
 const EQUIPPED_DROP_GUARD_HR = 0.05;
+const GATEWAY_URL_KEY = "d2-wealth-gateway-url";
+const BACKEND_URL_KEY = "d2-wealth-backend-url";
+const ACCOUNT_ID_KEY = "d2-wealth-account-id";
 
 const classPortraits: Record<string, string> = {
   amazon: amazonPortrait,
@@ -116,10 +132,42 @@ const gatewayStatusClass = (status: string) => {
   return "status-idle";
 };
 
+const deriveGatewayUrl = () => {
+  if (typeof window === "undefined") {
+    return "http://127.0.0.1:3187";
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const fromQuery = params.get("gateway");
+  if (fromQuery) {
+    return fromQuery;
+  }
+
+  return window.localStorage.getItem(GATEWAY_URL_KEY) || "http://127.0.0.1:3187";
+};
+
+const deriveBackendConfig = () => {
+  if (typeof window === "undefined") {
+    return { backendUrl: "", accountId: "" };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const backendUrl = params.get("backend") || window.localStorage.getItem(BACKEND_URL_KEY) || "";
+  const accountId = params.get("account") || window.localStorage.getItem(ACCOUNT_ID_KEY) || "";
+  return { backendUrl, accountId };
+};
+
+const derivePreviewDashboard = () => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return params.get("preview") === "dashboard";
+};
+
 const portraitForClass = (className: string) => classPortraits[className.toLowerCase()] ?? sorceressPortrait;
-const gatewayActionLabel = (status: string) => (status === "Connected" ? "Refresh" : "Connect");
-const gatewayActionIcon = (status: string) => (status === "Connected" ? "↻" : null);
-const shouldShowManualImport = (status: string) => status !== "Connected";
+const shouldShowManualImport = (status: string) => status !== "Connected" && status !== "Syncing...";
 const rulesetClass = (ruleset: "Classic" | "LoD" | "ROTW") => {
   if (ruleset === "ROTW") {
     return "ruleset-rotw";
@@ -128,6 +176,54 @@ const rulesetClass = (ruleset: "Classic" | "LoD" | "ROTW") => {
     return "ruleset-lod";
   }
   return "ruleset-classic";
+};
+
+const createPreviewReport = (): WealthReport => {
+  const importedAt = new Date().toISOString();
+  return {
+    importedAt,
+    totalHr: 4.13,
+    runeHr: 1.84,
+    equippedHr: 1.96,
+    stashHr: 0.61,
+    sharedHr: 1.56,
+    characters: [
+      { name: "Atti", className: "Sorceress", level: 91, ruleset: "ROTW", equippedHr: 1.96, stashHr: 0.18 },
+      { name: "Raze", className: "Paladin", level: 88, ruleset: "LoD", equippedHr: 0.42, stashHr: 0.09 },
+    ],
+    runeSummary: [
+      { name: "Lo", count: 1, looseCount: 1, totalHr: 0.625 },
+      { name: "Ist", count: 2, looseCount: 2, totalHr: 0.25 },
+      { name: "Mal", count: 1, looseCount: 1, totalHr: 0.125 },
+    ],
+    topCharacterStash: [],
+    topInventory: [],
+    topSharedStash: [],
+    allValuedItems: [
+      { id: "preview-enigma", name: "Enigma", location: "equipped", owner: "Atti", source: "equipped", valueHr: 2.25, tradeValue: "Jah + Ber", matchedBy: "socketed" },
+      { id: "preview-shako", name: "Harlequin Crest", location: "equipped", owner: "Atti", source: "equipped", valueHr: 0.375, tradeValue: "Vex", matchedBy: "exact" },
+    ],
+    unmatchedItems: [],
+    snapshot: {
+      importedAt,
+      totalHr: 4.13,
+      runeHr: 1.84,
+      equippedHr: 1.96,
+      stashHr: 0.61,
+      sharedHr: 1.56,
+      characterCount: 2,
+    },
+  };
+};
+
+const createPreviewHistory = (): WealthSnapshot[] => {
+  const now = Date.now();
+  return [
+    { importedAt: new Date(now - 1000 * 60 * 60 * 24 * 5).toISOString(), totalHr: 2.18, runeHr: 0.92, equippedHr: 0.84, stashHr: 0.22, sharedHr: 0.2, characterCount: 2 },
+    { importedAt: new Date(now - 1000 * 60 * 60 * 24 * 3).toISOString(), totalHr: 2.94, runeHr: 1.13, equippedHr: 1.12, stashHr: 0.31, sharedHr: 0.38, characterCount: 2 },
+    { importedAt: new Date(now - 1000 * 60 * 60 * 24 * 1).toISOString(), totalHr: 3.62, runeHr: 1.41, equippedHr: 1.52, stashHr: 0.33, sharedHr: 0.36, characterCount: 2 },
+    { importedAt: new Date(now).toISOString(), totalHr: 4.13, runeHr: 1.84, equippedHr: 1.96, stashHr: 0.61, sharedHr: 1.56, characterCount: 2 },
+  ];
 };
 
 function StatCard(props: { label: string; value: string; tone?: "default" | "accent" }) {
@@ -245,16 +341,113 @@ function HistoryChart(props: { data: WealthSnapshot[] }) {
   );
 }
 
+function GettingStarted(props: {
+  onSignIn?: () => void;
+  stepOneReady: boolean;
+  stepTwoReady: boolean;
+  onOpenDashboard: () => void;
+}) {
+  const canOpenDashboard = props.stepOneReady && props.stepTwoReady;
+
+  return (
+    <section className="landing-shell">
+      <section className="landing-hero">
+        <img className="landing-logo" src={d2rLogo} alt="Diablo II Resurrected" />
+        <p className="eyebrow">Offline account tracking for Diablo II: Resurrected</p>
+        <h1>See your account at a glance.</h1>
+        <p className="landing-copy">
+          Built for offline characters using the{" "}
+          <a href="https://www.nexusmods.com/diablo2resurrected/mods/964?tab=posts" target="_blank" rel="noreferrer">
+            Single Player Trading Market
+          </a>
+          . Item trade values follow the mod, while rune-based net worth is normalized against live market data.
+        </p>
+        <div className="landing-preview-frame">
+          <img className="landing-preview-image" src={dashboardPreview} alt="Authenticated D2 Wealth dashboard preview" />
+        </div>
+      </section>
+
+      <section className="landing-guide">
+        <article className={`landing-step ${props.stepOneReady ? "is-complete" : ""}`}>
+          <span className="landing-step-number">{props.stepOneReady ? "✓" : "1"}</span>
+          <div>
+            <h3>Sign in with Discord</h3>
+            <p>Sign in with Discord to access your D2 Wealth account and retrieve the sync token for your local gateway.</p>
+            <div className="landing-step-actions">
+              <button type="button" className="discord-button" onClick={props.onSignIn} disabled={props.stepOneReady}>
+                <svg className="discord-glyph" viewBox="0 0 127.14 96.36" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0 105.89 105.89 0 0 0 19.39 8.09C2.79 32.65-1.71 56.6.54 80.21h.02a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.84-5.18c.91-.66 1.8-1.35 2.66-2.08 20.87 9.53 43.46 9.53 64.08 0 .87.73 1.76 1.42 2.66 2.08a68.68 68.68 0 0 1-10.86 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14h.02c2.64-27.38-4.5-51.11-18.72-72.15ZM42.45 65.69C36.18 65.69 31 59.96 31 52.91s5.06-12.78 11.45-12.78c6.45 0 11.57 5.78 11.46 12.78 0 7.05-5.06 12.78-11.46 12.78Zm42.24 0c-6.27 0-11.45-5.73-11.45-12.78S78.3 40.13 84.69 40.13c6.45 0 11.57 5.78 11.45 12.78 0 7.05-5.05 12.78-11.45 12.78Z"
+                  />
+                </svg>
+                <span>{props.stepOneReady ? "Discord Connected" : "Sign in with Discord"}</span>
+              </button>
+            </div>
+          </div>
+        </article>
+        <article className={`landing-step ${props.stepTwoReady ? "is-complete" : ""}`}>
+          <span className="landing-step-number">{props.stepTwoReady ? "✓" : "2"}</span>
+          <div>
+            <h3>Set up the local gateway</h3>
+            <p>Open the Windows tray app, point it at your D2R save folder, then set the backend host and your account sync token.</p>
+            <div className="landing-step-status">{props.stepTwoReady ? "Gateway detected locally." : "Waiting for local gateway."}</div>
+            {!props.stepTwoReady ? (
+              <div className="landing-step-help">
+                <strong>What is the local gateway?</strong>
+                <ul className="landing-step-list">
+                  <li>Install and launch the D2 Wealth Gateway tray app.</li>
+                  <li>Set the save folder to <code>Saved Games\Diablo II Resurrected</code>.</li>
+                  <li>Set the backend host to <code>{window.location.origin.replace(/:\d+$/, ":3197")}</code>.</li>
+                  <li>Paste your sync token and leave the gateway running in the tray.</li>
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        </article>
+        <article className={`landing-step ${canOpenDashboard ? "is-complete" : ""}`}>
+          <span className="landing-step-number">{canOpenDashboard ? "✓" : "3"}</span>
+          <div>
+            <h3>Open the dashboard</h3>
+            <p>Once Discord is connected and the local gateway is reachable, open the dashboard to view overview, wealth history, and the loot ledger.</p>
+            <div className="landing-step-actions">
+              <button type="button" className="dashboard-open-button" onClick={props.onOpenDashboard} disabled={!canOpenDashboard}>
+                Open Dashboard
+              </button>
+            </div>
+          </div>
+        </article>
+      </section>
+    </section>
+  );
+}
+
 export default function App() {
+  const backendConfig = deriveBackendConfig();
+  const previewDashboard = derivePreviewDashboard();
+  const effectiveBackendUrl = backendConfig.backendUrl || "http://127.0.0.1:3197";
+  const backendMode = Boolean(backendConfig.backendUrl);
   const [report, setReport] = useState<WealthReport | null>(null);
   const [history, setHistory] = useState<WealthSnapshot[]>([]);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState<"overview" | "loot">("overview");
-  const [gatewayUrl, setGatewayUrl] = useState("http://127.0.0.1:3187");
+  const [gatewayUrl] = useState(deriveGatewayUrl);
   const [gatewayStatus, setGatewayStatus] = useState<string>("Disconnected");
+  const [backendStatus, setBackendStatus] = useState<string>(backendMode ? "Connecting..." : "Idle");
+  const [authRequired, setAuthRequired] = useState(false);
+  const [user, setUser] = useState<BackendUser | null>(null);
+  const [accounts, setAccounts] = useState<BackendAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState(backendConfig.accountId);
+  const [gatewayReady, setGatewayReady] = useState(false);
+  const [dashboardUnlocked, setDashboardUnlocked] = useState(false);
   const gatewayEventsRef = useRef<EventSource | null>(null);
+  const retryTimerRef = useRef<number | null>(null);
+  const autoConnectStartedRef = useRef(false);
+  const backendPollTimerRef = useRef<number | null>(null);
+  const gatewayProbeTimerRef = useRef<number | null>(null);
   const reportRef = useRef<WealthReport | null>(null);
+  const selectedAccountRef = useRef(selectedAccountId);
   const deferredHistory = useDeferredValue(history);
 
   useEffect(() => {
@@ -266,10 +459,58 @@ export default function App() {
   }, [report]);
 
   useEffect(() => {
+    selectedAccountRef.current = selectedAccountId;
+    if (selectedAccountId) {
+      window.localStorage.setItem(ACCOUNT_ID_KEY, selectedAccountId);
+    }
+  }, [selectedAccountId]);
+
+  useEffect(() => {
     return () => {
       gatewayEventsRef.current?.close();
+      if (retryTimerRef.current) {
+        window.clearTimeout(retryTimerRef.current);
+      }
+      if (backendPollTimerRef.current) {
+        window.clearTimeout(backendPollTimerRef.current);
+      }
+      if (gatewayProbeTimerRef.current) {
+        window.clearTimeout(gatewayProbeTimerRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const pollGatewayHealth = async () => {
+      try {
+        const response = await fetch(`${gatewayUrl.replace(/\/+$/, "")}/health`);
+        if (!response.ok) {
+          throw new Error(`Gateway health failed with ${response.status}.`);
+        }
+        if (!cancelled) {
+          setGatewayReady(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setGatewayReady(false);
+        }
+      } finally {
+        if (!cancelled) {
+          gatewayProbeTimerRef.current = window.setTimeout(() => {
+            void pollGatewayHealth();
+          }, 10000);
+        }
+      }
+    };
+
+    void pollGatewayHealth();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [gatewayUrl]);
 
   const applyReport = (nextReport: WealthReport) => {
     const nextHistory = pushHistory(nextReport.snapshot);
@@ -299,6 +540,54 @@ export default function App() {
 
     const nextReport = (await reportResponse.json()) as WealthReport;
     applyReport(nextReport);
+  };
+
+  const fetchBackendAccount = async (baseUrl: string, accountId: string) => {
+    const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+    window.localStorage.setItem(BACKEND_URL_KEY, normalizedBaseUrl);
+    window.localStorage.setItem(ACCOUNT_ID_KEY, accountId);
+
+    const [latestResponse, historyResponse] = await Promise.all([
+      fetch(`${normalizedBaseUrl}/api/accounts/${encodeURIComponent(accountId)}/latest`, { credentials: "include" }),
+      fetch(`${normalizedBaseUrl}/api/accounts/${encodeURIComponent(accountId)}/history`, { credentials: "include" }),
+    ]);
+
+    if (!latestResponse.ok) {
+      if (latestResponse.status === 401 || latestResponse.status === 403) {
+        throw new Error("AUTH_REQUIRED");
+      }
+      throw new Error(`Backend latest request failed with ${latestResponse.status}.`);
+    }
+
+    if (!historyResponse.ok) {
+      if (historyResponse.status === 401 || historyResponse.status === 403) {
+        throw new Error("AUTH_REQUIRED");
+      }
+      throw new Error(`Backend history request failed with ${historyResponse.status}.`);
+    }
+
+    const latestPayload = (await latestResponse.json()) as { report: WealthReport };
+    const historyPayload = (await historyResponse.json()) as { history: WealthSnapshot[] };
+
+    startTransition(() => {
+      setReport(latestPayload.report);
+      setHistory(historyPayload.history ?? []);
+    });
+  };
+
+  const fetchBackendMe = async (baseUrl: string) => {
+    const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+    window.localStorage.setItem(BACKEND_URL_KEY, normalizedBaseUrl);
+
+    const response = await fetch(`${normalizedBaseUrl}/api/me`, { credentials: "include" });
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        throw new Error("AUTH_REQUIRED");
+      }
+      throw new Error(`Backend me request failed with ${response.status}.`);
+    }
+
+    return (await response.json()) as { user: BackendUser; accounts: BackendAccount[] };
   };
 
   const isSuspiciousDrop = (previous: WealthReport | null, next: WealthReport) => {
@@ -447,14 +736,32 @@ export default function App() {
     }
   };
 
-  const connectGateway = async () => {
+  const scheduleGatewayRetry = () => {
+    if (retryTimerRef.current) {
+      return;
+    }
+
+    retryTimerRef.current = window.setTimeout(() => {
+      retryTimerRef.current = null;
+      void connectGateway(true);
+    }, 5000);
+  };
+
+  const connectGateway = async (silent = false) => {
     setIsBusy(true);
-    setError(null);
+    if (!silent) {
+      setError(null);
+    }
     setGatewayStatus("Connecting...");
 
     try {
       const baseUrl = gatewayUrl.replace(/\/+$/, "");
+      window.localStorage.setItem(GATEWAY_URL_KEY, baseUrl);
       await refreshGatewaySnapshot(baseUrl);
+      if (retryTimerRef.current) {
+        window.clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       setGatewayStatus("Connected");
 
       gatewayEventsRef.current?.close();
@@ -478,76 +785,227 @@ export default function App() {
         setGatewayStatus("Disconnected");
         eventSource.close();
         gatewayEventsRef.current = null;
+        scheduleGatewayRetry();
       };
     } catch (caught) {
       setGatewayStatus("Error");
-      setError(caught instanceof Error ? caught.message : "Gateway connection failed.");
+      if (!silent) {
+        setError(caught instanceof Error ? caught.message : "Gateway connection failed.");
+      }
+      scheduleGatewayRetry();
     } finally {
       setIsBusy(false);
     }
   };
 
+  const signInWithDiscord = () => {
+    window.location.href = `${effectiveBackendUrl.replace(/\/+$/, "")}/auth/discord/start?returnTo=${encodeURIComponent(window.location.href)}`;
+  };
+
+  const logout = async () => {
+    await fetch(`${effectiveBackendUrl.replace(/\/+$/, "")}/api/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+    setUser(null);
+    setAccounts([]);
+    setSelectedAccountId("");
+    setReport(null);
+    setHistory([]);
+    setAuthRequired(true);
+    setDashboardUnlocked(false);
+  };
+
+  useEffect(() => {
+    if (!previewDashboard) {
+      return;
+    }
+
+    setGatewayReady(true);
+    setDashboardUnlocked(true);
+    setUser({ id: "preview-user", username: "Preview Account" });
+    setAccounts([{ id: "preview-account", name: "Preview Account", role: "owner" }]);
+    setSelectedAccountId("preview-account");
+    setReport(createPreviewReport());
+    setHistory(createPreviewHistory());
+  }, [previewDashboard]);
+
+  useEffect(() => {
+    if (autoConnectStartedRef.current) {
+      return;
+    }
+
+    autoConnectStartedRef.current = true;
+    if (previewDashboard) {
+      return;
+    }
+
+    if (backendMode) {
+      const pollBackend = async () => {
+        try {
+          const mePayload = await fetchBackendMe(backendConfig.backendUrl);
+          setUser(mePayload.user);
+          setAccounts(mePayload.accounts);
+          setAuthRequired(false);
+
+          const nextAccountId = selectedAccountRef.current || mePayload.accounts[0]?.id || "";
+          if (!selectedAccountRef.current && nextAccountId) {
+            setSelectedAccountId(nextAccountId);
+          }
+
+          if (!nextAccountId) {
+            setBackendStatus("Disconnected");
+            setReport(null);
+            setHistory([]);
+            return;
+          }
+
+          setBackendStatus("Syncing...");
+          await fetchBackendAccount(backendConfig.backendUrl, nextAccountId);
+          setBackendStatus("Connected");
+        } catch (caught) {
+          if (caught instanceof Error && caught.message === "AUTH_REQUIRED") {
+            setBackendStatus("Disconnected");
+            setAuthRequired(true);
+            setUser(null);
+            setAccounts([]);
+            setReport(null);
+            setHistory([]);
+            setError(null);
+          } else {
+            setBackendStatus("Error");
+            setError(caught instanceof Error ? caught.message : "Backend account load failed.");
+          }
+        } finally {
+          backendPollTimerRef.current = window.setTimeout(() => {
+            void pollBackend();
+          }, 10000);
+        }
+      };
+
+      void pollBackend();
+      return;
+    }
+
+    void connectGateway(true);
+  }, []);
+
+  useEffect(() => {
+    if (!backendMode || !user || !selectedAccountId) {
+      return;
+    }
+
+    let cancelled = false;
+    setBackendStatus("Syncing...");
+    void fetchBackendAccount(backendConfig.backendUrl, selectedAccountId)
+      .then(() => {
+        if (!cancelled) {
+          setBackendStatus("Connected");
+        }
+      })
+      .catch((caught) => {
+        if (!cancelled) {
+          setBackendStatus("Error");
+          setError(caught instanceof Error ? caught.message : "Backend account load failed.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [backendMode, user, selectedAccountId, previewDashboard]);
+
+  const stepOneReady = !!user && !authRequired;
+  const stepTwoReady = gatewayReady;
+  const showDashboard = previewDashboard ? !!report && dashboardUnlocked : backendMode && !!user && !!selectedAccountId && !authRequired && dashboardUnlocked;
+
   return (
-    <main className="app-shell">
-      <section className="deck-frame command-frame">
-        <section className="topbar">
-          <div className="brand-block panel">
-            <img className="masthead-logo" src={d2rLogo} alt="Diablo II Resurrected" />
-            <div className="brand-copy">
-              <p className="eyebrow">Offline wealth tracker for live local saves</p>
-              <p className="masthead-text">
-                Track your account value, watch progression over time, and keep the loot worth trading front and center.
-              </p>
+    <main className={`app-shell ${showDashboard ? "" : "app-shell-landing"}`}>
+      {showDashboard ? (
+        <section className="deck-frame command-frame">
+          <section className="topbar">
+            <div className="brand-block panel">
+              <img className="masthead-logo" src={d2rLogo} alt="Diablo II Resurrected" />
+              <div className="brand-copy">
+                <p className="eyebrow">Offline wealth tracker for live local saves</p>
+                <p className="masthead-text">
+                  Track your account value, watch progression over time, and keep the loot worth trading front and center.
+                </p>
+              </div>
             </div>
-          </div>
 
-          <div className="control-stack">
-            {shouldShowManualImport(gatewayStatus) ? (
-              <label className="dropzone compact control-panel">
-                <input type="file" multiple accept=".d2s,.d2i,.sss,.cst" onChange={onImport} />
-                <span>{isBusy ? "Parsing saves..." : "Choose save + stash files"}</span>
-                <small>Manual import for offline characters and stash files.</small>
-              </label>
-            ) : null}
+            <div className="control-stack">
+              <section className="gateway-card control-panel">
+                <div className="panel-header compact-header">
+                  <h3>Account</h3>
+                  <span className="gateway-status status-connected">{user?.username}</span>
+                </div>
+                <div className="account-controls">
+                  <select value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={logout}>
+                    Log Out
+                  </button>
+                </div>
+              </section>
 
-            <section className="gateway-card control-panel">
-              <div className="panel-header compact-header">
-                <h3>Local Gateway</h3>
-                <span className={`gateway-status ${gatewayStatusClass(gatewayStatus)}`}>{gatewayStatus}</span>
-              </div>
-              <div className="gateway-controls">
-                <input value={gatewayUrl} onChange={(event) => setGatewayUrl(event.target.value)} placeholder="http://127.0.0.1:3187" />
-                <button
-                  type="button"
-                  onClick={connectGateway}
-                  disabled={isBusy}
-                  className={gatewayStatus === "Connected" ? "gateway-icon-button" : ""}
-                  aria-label={gatewayActionLabel(gatewayStatus)}
-                  title={gatewayActionLabel(gatewayStatus)}
-                >
-                  {gatewayActionIcon(gatewayStatus) ?? gatewayActionLabel(gatewayStatus)}
-                </button>
-              </div>
-              <small>
-                Run <code>npm run gateway</code> on the machine that owns the D2R save folder.
-              </small>
-            </section>
+              {!backendMode && shouldShowManualImport(gatewayStatus) ? (
+                <label className="dropzone compact control-panel">
+                  <input type="file" multiple accept=".d2s,.d2i,.sss,.cst" onChange={onImport} />
+                  <span>{isBusy ? "Parsing saves..." : "Choose save + stash files"}</span>
+                  <small>Manual import for offline characters and stash files.</small>
+                </label>
+              ) : null}
+
+              <section className="gateway-card control-panel">
+                <div className="panel-header compact-header">
+                  <h3>{backendMode ? "Synced Backend" : "Local Gateway"}</h3>
+                  <span className={`gateway-status ${gatewayStatusClass(backendMode ? backendStatus : gatewayStatus)}`}>
+                    {backendMode ? backendStatus : gatewayStatus}
+                  </span>
+                </div>
+                <small>
+                  {backendMode ? (
+                    <>
+                      Account <code>{backendConfig.accountId}</code> via <code>{backendConfig.backendUrl}</code>
+                    </>
+                  ) : (
+                    <>
+                      Managed by the tray gateway app. Endpoint: <code>{gatewayUrl}</code>
+                    </>
+                  )}
+                </small>
+              </section>
+            </div>
+          </section>
+
+          <div className="view-switcher">
+            <button type="button" className={page === "overview" ? "is-active" : ""} onClick={() => setPage("overview")}>
+              Overview
+            </button>
+            <button type="button" className={page === "loot" ? "is-active" : ""} onClick={() => setPage("loot")}>
+              Loot Ledger
+            </button>
           </div>
         </section>
-
-        <div className="view-switcher">
-          <button type="button" className={page === "overview" ? "is-active" : ""} onClick={() => setPage("overview")}>
-            Overview
-          </button>
-          <button type="button" className={page === "loot" ? "is-active" : ""} onClick={() => setPage("loot")}>
-            Loot Ledger
-          </button>
-        </div>
-      </section>
+      ) : null}
 
       {error ? <div className="banner error">{error}</div> : null}
+      {!showDashboard ? (
+        <GettingStarted
+          onSignIn={signInWithDiscord}
+          stepOneReady={stepOneReady}
+          stepTwoReady={stepTwoReady}
+          onOpenDashboard={() => setDashboardUnlocked(true)}
+        />
+      ) : null}
 
-      {page === "overview" ? (
+      {showDashboard && page === "overview" ? (
         <section className="deck-frame overview-frame">
           <section className="stats-strip">
             <StatCard label="Account Net Worth" value={formatHr(report?.totalHr ?? 0)} tone="accent" />
@@ -614,7 +1072,7 @@ export default function App() {
             </p>
           </section>
         </section>
-      ) : (
+      ) : showDashboard ? (
         <section className="deck-frame loot-frame">
           <section className="loot-stage">
             <div className="panel-header loot-header">
@@ -646,7 +1104,7 @@ export default function App() {
             </section>
           </section>
         </section>
-      )}
+      ) : null}
     </main>
   );
 }

@@ -9,6 +9,9 @@ Own the data pipeline that turns D2R save inputs plus market sources into a cano
 - Use `./data/market.xlsx` as the item pricing source for gear and other tradeables.
 - Parse character saves and stash files into a stable internal item model.
 - Read D2R v105 stackable/shared material sectors for rune and material inventory.
+- Expose the parser through a reusable local gateway service that can be hosted by a tray app or plain CLI.
+- Publish canonical account reports to a backend service so multiple gateway clients can feed one account view.
+- Seed and maintain backend market tables in SQLite so workbook data becomes import input rather than runtime storage.
 - Preserve raw source fields so later UI/debug views can explain every valuation.
 
 ## Data Rules

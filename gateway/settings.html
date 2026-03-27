@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>D2 Wealth Gateway</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Segoe UI", sans-serif;
+        background: #14100d;
+        color: #efe7d5;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at top, rgba(201, 112, 43, 0.18), transparent 36%),
+          linear-gradient(180deg, #18110d, #0d0a08);
+      }
+
+      main {
+        padding: 24px;
+        display: grid;
+        gap: 18px;
+      }
+
+      .panel {
+        border-radius: 18px;
+        border: 1px solid rgba(230, 191, 132, 0.16);
+        background: rgba(255, 255, 255, 0.03);
+        padding: 18px;
+      }
+
+      h1, h2, p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 1.2rem;
+        color: #f2d7a8;
+      }
+
+      p {
+        color: rgba(239, 231, 213, 0.7);
+        line-height: 1.45;
+      }
+
+      form {
+        display: grid;
+        gap: 14px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 0.9rem;
+      }
+
+      input {
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.05);
+        color: inherit;
+        padding: 10px 12px;
+        font: inherit;
+      }
+
+      input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        padding: 0;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+      }
+
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        border: 0;
+        border-radius: 12px;
+        padding: 10px 14px;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        color: #1a140f;
+        background: linear-gradient(135deg, #f0b763, #c6752c);
+      }
+
+      button.secondary {
+        color: #efe7d5;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .status-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .status-card {
+        border-radius: 14px;
+        padding: 12px 14px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .status-card strong {
+        display: block;
+        margin-top: 6px;
+        color: #f7d198;
+      }
+
+      .small {
+        font-size: 0.83rem;
+      }
+
+      .ok {
+        color: #69d58e;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="panel">
+        <h1>D2 Wealth Gateway</h1>
+        <p>Runs in the Windows tray and serves your local D2R save report to the web dashboard.</p>
+      </section>
+
+      <section class="panel">
+        <form id="settings-form">
+          <label>
+            Save Directory
+            <div class="row">
+              <input id="saveDir" name="saveDir" />
+              <button type="button" class="secondary" id="browse">Browse</button>
+            </div>
+          </label>
+
+          <label>
+            Host
+            <input id="host" name="host" />
+          </label>
+
+          <label>
+            Port
+            <input id="port" name="port" type="number" min="1" max="65535" />
+          </label>
+
+          <label>
+            Dashboard URL
+            <input id="dashboardUrl" name="dashboardUrl" />
+          </label>
+
+          <label>
+            Backend URL
+            <input id="backendUrl" name="backendUrl" />
+          </label>
+
+          <label>
+            Account ID
+            <input id="accountId" name="accountId" />
+          </label>
+
+          <label>
+            Client ID
+            <input id="clientId" name="clientId" />
+          </label>
+
+          <label>
+            Sync Token
+            <input id="syncToken" name="syncToken" />
+          </label>
+
+          <label class="toggle-row">
+            <input id="autoStart" name="autoStart" type="checkbox" />
+            <span>Start gateway automatically when Windows starts</span>
+          </label>
+
+          <label class="toggle-row">
+            <input id="syncEnabled" name="syncEnabled" type="checkbox" />
+            <span>Sync snapshots to backend</span>
+          </label>
+
+          <div class="actions">
+            <button type="submit">Save Settings</button>
+            <button type="button" class="secondary" id="open-dashboard">Open Dashboard</button>
+            <button type="button" class="secondary" id="open-portal">Open Account Portal</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Gateway Status</h2>
+        <div class="status-grid" id="status-grid"></div>
+      </section>
+    </main>
+
+    <script>
+      const saveDir = document.getElementById("saveDir");
+      const host = document.getElementById("host");
+      const port = document.getElementById("port");
+      const dashboardUrl = document.getElementById("dashboardUrl");
+      const backendUrl = document.getElementById("backendUrl");
+      const accountId = document.getElementById("accountId");
+      const clientId = document.getElementById("clientId");
+      const syncToken = document.getElementById("syncToken");
+      const autoStart = document.getElementById("autoStart");
+      const syncEnabled = document.getElementById("syncEnabled");
+      const statusGrid = document.getElementById("status-grid");
+      const settingsForm = document.getElementById("settings-form");
+
+      const renderStatus = (status) => {
+        statusGrid.innerHTML = `
+          <article class="status-card">
+            <span class="small">Gateway</span>
+            <strong class="${status.running ? "ok" : ""}">${status.running ? "Running" : "Stopped"}</strong>
+          </article>
+          <article class="status-card">
+            <span class="small">Endpoint</span>
+            <strong>http://${status.host}:${status.port}</strong>
+          </article>
+          <article class="status-card">
+            <span class="small">Files Seen</span>
+            <strong>${status.files.length}</strong>
+          </article>
+          <article class="status-card">
+            <span class="small">Watching</span>
+            <strong>${status.saveDir}</strong>
+          </article>
+          <article class="status-card">
+            <span class="small">Dashboard</span>
+            <strong>${status.dashboardUrl}</strong>
+          </article>
+          <article class="status-card">
+            <span class="small">Startup</span>
+            <strong>${status.autoStart ? "Enabled" : "Disabled"}</strong>
+          </article>
+          <article class="status-card">
+            <span class="small">Backend Sync</span>
+            <strong>${status.syncEnabled ? "Enabled" : "Disabled"}</strong>
+          </article>
+          <article class="status-card">
+            <span class="small">Account</span>
+            <strong>${status.accountId}</strong>
+          </article>
+          <article class="status-card">
+            <span class="small">Last Sync</span>
+            <strong>${status.lastBackendSyncAt ?? status.lastBackendSyncError ?? "Never"}</strong>
+          </article>
+        `;
+      };
+
+      const applyStatus = (status) => {
+        saveDir.value = status.saveDir ?? "";
+        host.value = status.host ?? "";
+        port.value = status.port ?? 3187;
+        dashboardUrl.value = status.dashboardUrl ?? "";
+        backendUrl.value = status.backendUrl ?? "";
+        accountId.value = status.accountId ?? "";
+        clientId.value = status.clientId ?? "";
+        syncToken.value = status.syncToken ?? "";
+        autoStart.checked = Boolean(status.autoStart);
+        syncEnabled.checked = Boolean(status.syncEnabled);
+        renderStatus(status);
+      };
+
+      settingsForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const next = await window.gatewayTray.saveSettings({
+          saveDir: saveDir.value,
+          host: host.value,
+          port: Number(port.value),
+          dashboardUrl: dashboardUrl.value,
+          backendUrl: backendUrl.value,
+          accountId: accountId.value,
+          clientId: clientId.value,
+          syncToken: syncToken.value,
+          autoStart: autoStart.checked,
+          syncEnabled: syncEnabled.checked,
+        });
+        applyStatus(next);
+      });
+
+      document.getElementById("browse").addEventListener("click", async () => {
+        const nextSaveDir = await window.gatewayTray.browseSaveDir();
+        if (nextSaveDir) {
+          saveDir.value = nextSaveDir;
+        }
+      });
+
+      document.getElementById("open-dashboard").addEventListener("click", async () => {
+        await window.gatewayTray.openDashboard();
+      });
+
+      document.getElementById("open-portal").addEventListener("click", async () => {
+        await window.gatewayTray.openBackendPortal();
+      });
+
+      window.gatewayTray.onStatus((status) => {
+        applyStatus(status);
+      });
+
+      window.gatewayTray.loadStatus().then(applyStatus);
+    </script>
+  </body>
+</html>

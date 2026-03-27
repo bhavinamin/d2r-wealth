@@ -12,6 +12,8 @@ Import Diablo 2: Resurrected character and stash files, extract all value-bearin
 5. Include equipped gear in the account total exactly once.
 6. Rank personal stash, carried inventory, and shared stash items by HR value in separate result buckets.
 7. Append a timestamped snapshot for the wealth history chart.
+8. When backend sync is enabled, publish the resulting report upstream under the configured account and client identity.
+9. Authenticate dashboard access through Discord-backed backend sessions and keep gateway publish access on a separate sync token.
 
 ## Rules
 - Treat unknown items as unresolved rather than zero value.
@@ -21,6 +23,8 @@ Import Diablo 2: Resurrected character and stash files, extract all value-bearin
 - Do not count zero-quantity stackable placeholders as owned runes.
 - Prefer server-side gateway reports over browser-side raw parsing for watched save folders.
 - Suppress obviously corrupted shared-stash page items from ranked views when the parse shape is not trustworthy.
+- Keep gateway client identity stable so backend history can distinguish uploads from multiple machines.
+- Do not use browser sessions as gateway credentials; gateway publish access should stay token-based.
 
 ## Outputs
 - Character wealth snapshot.
@@ -28,3 +32,4 @@ Import Diablo 2: Resurrected character and stash files, extract all value-bearin
 - Character ruleset labels (`Classic`, `LoD`, `ROTW`) for the overview roster.
 - Ranked highest-value items for personal stash, carried inventory, and shared stash.
 - Time-series point for the chart.
+- Backend account latest/history documents when sync is enabled.

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import XLSX from "xlsx";
+import { seedMarketTables } from "../backend/db.mjs";
 
 const repoRoot = process.cwd();
 const workbookPath = path.join(repoRoot, "data", "market.xlsx");
@@ -294,4 +295,5 @@ fs.writeFileSync(
   outFile,
   `${JSON.stringify({ generatedAt: new Date().toISOString(), runeValues, tokenValues, exactValues, entries }, null, 2)}\n`,
 );
+seedMarketTables({ runeValues, tokenValues, exactValues });
 console.log(`Generated ${path.relative(repoRoot, outFile)}`);

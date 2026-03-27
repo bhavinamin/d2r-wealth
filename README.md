@@ -7,7 +7,9 @@ It reads character saves and shared stash files, prices runes in `HR`, values eq
 ## Current Architecture
 
 - Frontend: React + Vite dashboard
-- Gateway: local Node watcher for the D2R save directory
+- Gateway: local Node watcher plus Windows tray shell for the D2R save directory
+- Backend: account-oriented sync service for multi-client snapshot ingest and history reads
+- Auth: Discord-only passwordless auth on the backend with browser sessions and gateway sync tokens
 - Pricing:
   - runes use a curated live-normalized rune table with `Ber = 1.0 HR`
   - gear pricing falls back to `data/market.xlsx`
@@ -22,6 +24,10 @@ It reads character saves and shared stash files, prices runes in `HR`, values eq
 ## What Works
 
 - Local gateway watching a live D2R save folder
+- Tray-hosted Windows gateway with persistent `gateway/settings.json` for `host`, `port`, and `saveDir`
+- Multi-client backend ingest keyed by `accountId` and `clientId`
+- Dashboard backend mode that reads account `latest` and `history` from the backend instead of localhost
+- SQLite-backed backend storage for users, sessions, accounts, gateway tokens, snapshots, and market tables
 - Shared stash material parsing for runes and stackable items
 - Shared stash valuation for keys, essences, gems, and worldstone shards
 - Equipped gear valuation, including runeword recipe fallback like `Enigma`
@@ -37,14 +43,16 @@ It reads character saves and shared stash files, prices runes in `HR`, values eq
 - Live character parses can degrade in-session on some modded saves; the app guards against suspicious equipped-value dips until a clean save lands on disk
 - Rare, crafted, jewel, charm, and affix-sensitive item pricing is still shallow
 - Some low-confidence shared-stash page parses are intentionally suppressed from top-value views unless they price cleanly
-- The local gateway is HTTP; a remotely hosted HTTPS frontend will need a secure local bridge
+- Discord OAuth credentials must be configured before backend auth works
+- Gateway backend sync now requires a backend-issued sync token
 
 ## Run Locally
 
 ```powershell
 npm install
+npm run backend
 npm run dev -- --host 127.0.0.1
-node .\gateway\server.mjs
+npm run gateway:tray
 ```
 
 App:
@@ -54,6 +62,27 @@ App:
 Gateway:
 
 - `http://127.0.0.1:3187`
+
+Backend:
+
+- `http://127.0.0.1:3197`
+
+Backend env vars:
+
+- `DISCORD_CLIENT_ID`
+- `DISCORD_CLIENT_SECRET`
+- `DISCORD_REDIRECT_URI` optional override
+- `D2_APP_REDIRECT_URI` optional dashboard return URL
+
+CLI fallback:
+
+```powershell
+npm run gateway
+```
+
+Gateway settings live in:
+
+- [gateway/settings.json](C:\Users\Bhavin\Documents\dev\d2-wealth\gateway\settings.json)
 
 ## Save Inputs
 
@@ -73,6 +102,11 @@ The gateway is intended to point at a live D2R save directory such as:
 - `scripts/generate-market.mjs` builds the runtime market index
 - it also applies value aliases for modded item names like essences and key naming differences
 - `gateway/report.mjs` is the authoritative gateway-side parser and valuation path
+- `gateway/service.mjs` owns the reusable HTTP/SSE gateway service and live watcher
+- `gateway/tray.mjs` wraps the gateway in a Windows tray app with a settings window
+- `backend/server.mjs` accepts gateway snapshot ingest and serves per-account latest/history views
+- `backend/db.mjs` owns the SQLite schema for auth, accounts, gateway tokens, snapshots, and market tables
+- `http://127.0.0.1:3197/portal` is the current lightweight Discord-authenticated account portal for minting gateway sync tokens
 - worldstone shard valuation currently comes from the installed Single Player Trading Market mod recipes
 - `src/App.tsx` contains the current dashboard behavior and trade-tag UI rules
 - `src/App.tsx` now separates the product into `Overview` and `Loot Ledger` views

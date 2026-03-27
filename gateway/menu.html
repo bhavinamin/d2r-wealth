@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>D2 Wealth Gateway Menu</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Segoe UI", sans-serif;
+      }
+
+      body {
+        margin: 0;
+        background: rgba(18, 13, 10, 0.98);
+        color: #efe7d5;
+        border: 1px solid rgba(227, 183, 118, 0.18);
+      }
+
+      main {
+        padding: 10px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .status {
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.04);
+        font-size: 0.82rem;
+        color: rgba(239, 231, 213, 0.74);
+      }
+
+      button {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        text-align: left;
+        padding: 12px 14px;
+        border-radius: 12px;
+        font: inherit;
+        cursor: pointer;
+        transition: background 120ms ease, color 120ms ease;
+      }
+
+      button:hover,
+      button:focus-visible {
+        outline: none;
+        background: linear-gradient(135deg, rgba(222, 132, 55, 0.42), rgba(110, 49, 18, 0.78));
+        color: #fff5e3;
+      }
+
+      .danger:hover,
+      .danger:focus-visible {
+        background: linear-gradient(135deg, rgba(190, 73, 56, 0.42), rgba(120, 29, 18, 0.8));
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="status" id="status">Gateway</div>
+      <button id="open-settings">Open Settings</button>
+      <button id="open-dashboard">Open Dashboard</button>
+      <button id="quit" class="danger">Quit Gateway</button>
+    </main>
+
+    <script>
+      const status = document.getElementById("status");
+
+      const renderStatus = (payload) => {
+        status.textContent = `Gateway listening on ${payload.host}:${payload.port}`;
+      };
+
+      document.getElementById("open-settings").addEventListener("click", async () => {
+        await window.trayMenu.openSettings();
+      });
+
+      document.getElementById("open-dashboard").addEventListener("click", async () => {
+        await window.trayMenu.openDashboard();
+      });
+
+      document.getElementById("quit").addEventListener("click", async () => {
+        await window.trayMenu.quit();
+      });
+
+      window.trayMenu.onStatus(renderStatus);
+      window.trayMenu.loadStatus().then(renderStatus);
+    </script>
+  </body>
+</html>
