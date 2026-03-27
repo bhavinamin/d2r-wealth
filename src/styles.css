@@ -844,8 +844,24 @@ code {
   font-size: 0.88rem;
 }
 
+.landing-step-help a {
+  color: #efc76f;
+  text-decoration: none;
+}
+
+.landing-step-help a:hover {
+  text-decoration: underline;
+}
+
 .token-panel {
   margin-top: 12px;
+}
+
+.token-copy {
+  margin: 0 0 8px;
+  color: rgba(244, 239, 228, 0.74);
+  line-height: 1.45;
+  font-size: 0.88rem;
 }
 
 .token-value {

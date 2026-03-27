@@ -57,6 +57,8 @@ const hrTickSize = smallestRuneValue;
 const EQUIPPED_DROP_GUARD_HR = 0.05;
 const BACKEND_URL_KEY = "d2-wealth-backend-url";
 const ACCOUNT_ID_KEY = "d2-wealth-account-id";
+const SYNC_TOKEN_KEY_PREFIX = "d2-wealth-sync-token";
+const GATEWAY_RELEASE_URL = "https://github.com/bhavinamin/d2r-wealth/releases/latest/download/D2-Wealth-Gateway-Setup.msi";
 
 const classPortraits: Record<string, string> = {
   amazon: amazonPortrait,
@@ -343,6 +345,7 @@ function GettingStarted(props: {
   stepTwoReady: boolean;
   onOpenDashboard: () => void;
   syncToken: string;
+  hasExistingToken: boolean;
   tokenBusy: boolean;
   onGenerateToken: () => void;
   onCopyToken: () => void;
@@ -405,11 +408,18 @@ function GettingStarted(props: {
                     </div>
                   </>
                 ) : (
-                  <div className="landing-step-actions">
-                    <button type="button" className="token-button" onClick={props.onGenerateToken} disabled={props.tokenBusy}>
-                      {props.tokenBusy ? "Generating..." : "Generate Sync Token"}
-                    </button>
-                  </div>
+                  <>
+                    <p className="token-copy">
+                      {props.hasExistingToken
+                        ? "A token already exists for this account. Generate a replacement token if you need to paste one into a gateway."
+                        : "Generate a sync token now so the local gateway can publish this account."}
+                    </p>
+                    <div className="landing-step-actions">
+                      <button type="button" className="token-button" onClick={props.onGenerateToken} disabled={props.tokenBusy}>
+                        {props.tokenBusy ? "Generating..." : props.hasExistingToken ? "Generate Replacement Token" : "Generate Sync Token"}
+                      </button>
+                    </div>
+                  </>
                 )}
               </div>
             ) : null}
@@ -425,9 +435,14 @@ function GettingStarted(props: {
               <div className="landing-step-help">
                 <strong>What is the local gateway?</strong>
                 <ul className="landing-step-list">
-                  <li>Install and launch the D2 Wealth Gateway tray app.</li>
+                  <li>
+                    <a href={GATEWAY_RELEASE_URL} target="_blank" rel="noreferrer">
+                      Download the D2 Wealth Gateway for Windows
+                    </a>
+                    .
+                  </li>
                   <li>Set the save folder to <code>Saved Games\Diablo II Resurrected</code>.</li>
-                  <li>Paste your sync token from the account portal.</li>
+                  <li>Paste your sync token from Step 1.</li>
                   <li>Leave the gateway running in the tray.</li>
                 </ul>
               </div>
@@ -468,6 +483,7 @@ export default function App() {
   const [gatewayReady, setGatewayReady] = useState(false);
   const [dashboardUnlocked, setDashboardUnlocked] = useState(false);
   const [syncToken, setSyncToken] = useState("");
+  const [hasExistingToken, setHasExistingToken] = useState(false);
   const [tokenBusy, setTokenBusy] = useState(false);
   const autoConnectStartedRef = useRef(false);
   const backendPollTimerRef = useRef<number | null>(null);
@@ -488,6 +504,8 @@ export default function App() {
     selectedAccountRef.current = selectedAccountId;
     if (selectedAccountId) {
       window.localStorage.setItem(ACCOUNT_ID_KEY, selectedAccountId);
+      setSyncToken(window.localStorage.getItem(syncTokenStorageKey(selectedAccountId)) || "");
+      setHasExistingToken(false);
     }
   }, [selectedAccountId]);
 
@@ -564,6 +582,8 @@ export default function App() {
 
     return (await response.json()) as { user: BackendUser; accounts: BackendAccount[] };
   };
+
+  const syncTokenStorageKey = (accountId: string) => `${SYNC_TOKEN_KEY_PREFIX}:${accountId}`;
 
   const listGatewayTokens = async (baseUrl: string, accountId: string) => {
     const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
@@ -704,16 +724,23 @@ export default function App() {
 
     setTokenBusy(true);
     try {
+      const cachedToken = window.localStorage.getItem(syncTokenStorageKey(selectedAccountId)) || "";
       if (!forceNew) {
         const existing = await listGatewayTokens(effectiveBackendUrl, selectedAccountId);
         if (existing.tokens.length > 0) {
-          setSyncToken("");
+          setHasExistingToken(true);
+          setSyncToken(cachedToken);
           return;
         }
       }
 
       const created = await createGatewayToken(effectiveBackendUrl, selectedAccountId);
-      setSyncToken(created.token ?? "");
+      const nextToken = created.token ?? "";
+      setHasExistingToken(true);
+      setSyncToken(nextToken);
+      if (nextToken) {
+        window.localStorage.setItem(syncTokenStorageKey(selectedAccountId), nextToken);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to prepare a gateway token.");
     } finally {
@@ -741,6 +768,8 @@ export default function App() {
     setHistory([]);
     setAuthRequired(true);
     setDashboardUnlocked(false);
+    setSyncToken("");
+    setHasExistingToken(false);
   };
 
   useEffect(() => {
@@ -925,6 +954,7 @@ export default function App() {
           stepTwoReady={stepTwoReady}
           onOpenDashboard={() => setDashboardUnlocked(true)}
           syncToken={syncToken}
+          hasExistingToken={hasExistingToken}
           tokenBusy={tokenBusy}
           onGenerateToken={() => void ensureSyncToken(true)}
           onCopyToken={() => void copySyncToken()}

@@ -1,0 +1,52 @@
+name: Release Gateway MSI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-gateway:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build MSI
+        run: npm run dist:gateway
+
+      - name: Prepare release asset
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $msi = Get-ChildItem release -Filter "D2-Wealth-Gateway-*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "MSI not found in release folder." }
+          Copy-Item $msi.FullName "release/D2-Wealth-Gateway-Setup.msi" -Force
+          "GATEWAY_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = "gateway-v$env:GATEWAY_VERSION"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 1>$null 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag `
+              "release/D2-Wealth-Gateway-Setup.msi" `
+              --repo $env:GITHUB_REPOSITORY `
+              --title "Gateway v$env:GATEWAY_VERSION" `
+              --notes "Windows tray gateway MSI for D2 Wealth."
+          } else {
+            gh release upload $tag "release/D2-Wealth-Gateway-Setup.msi" --clobber --repo $env:GITHUB_REPOSITORY
+          }

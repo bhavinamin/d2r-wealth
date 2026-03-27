@@ -14,8 +14,8 @@ export const DEFAULT_GATEWAY_SETTINGS = {
   port: 3187,
   saveDir: DEFAULT_SAVE_DIR,
   autoStart: false,
-  dashboardUrl: process.env.D2_GATEWAY_DASHBOARD_URL || "http://127.0.0.1:5173",
-  backendUrl: process.env.D2_GATEWAY_BACKEND_URL || "http://127.0.0.1:3197",
+  dashboardUrl: process.env.D2_GATEWAY_DASHBOARD_URL || "https://d2r.bjav.io",
+  backendUrl: process.env.D2_GATEWAY_BACKEND_URL || "https://d2r.bjav.io",
   accountId: "",
   clientId: os.hostname().toLowerCase(),
   syncToken: "",
@@ -46,10 +46,16 @@ const sanitizeSaveDir = (value) => {
 const sanitizeAutoStart = (value) => Boolean(value);
 const sanitizeDashboardUrl = (value) => {
   const dashboardUrl = String(value ?? "").trim();
+  if (dashboardUrl === "http://127.0.0.1:5173") {
+    return DEFAULT_GATEWAY_SETTINGS.dashboardUrl;
+  }
   return dashboardUrl || DEFAULT_GATEWAY_SETTINGS.dashboardUrl;
 };
 const sanitizeBackendUrl = (value) => {
   const backendUrl = String(value ?? "").trim();
+  if (backendUrl === "http://127.0.0.1:3197") {
+    return DEFAULT_GATEWAY_SETTINGS.backendUrl;
+  }
   return backendUrl || DEFAULT_GATEWAY_SETTINGS.backendUrl;
 };
 const sanitizeAccountId = (value) => String(value ?? "").trim();
