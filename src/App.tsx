@@ -24,6 +24,13 @@ type BackendAccount = {
   role: string;
 };
 
+type GatewayToken = {
+  id: string;
+  label: string;
+  token?: string;
+  tokenPrefix?: string;
+};
+
 const formatHr = (value: number) => `${value.toFixed(value >= 1 ? 2 : 3)} HR`;
 const formatTime = (value: string) =>
   new Intl.DateTimeFormat(undefined, {
@@ -335,6 +342,10 @@ function GettingStarted(props: {
   stepOneReady: boolean;
   stepTwoReady: boolean;
   onOpenDashboard: () => void;
+  syncToken: string;
+  tokenBusy: boolean;
+  onGenerateToken: () => void;
+  onCopyToken: () => void;
 }) {
   const canOpenDashboard = props.stepOneReady && props.stepTwoReady;
 
@@ -378,6 +389,30 @@ function GettingStarted(props: {
                 <span>{props.stepOneReady ? "Discord Connected" : "Sign in with Discord"}</span>
               </button>
             </div>
+            {props.stepOneReady ? (
+              <div className="landing-step-help token-panel">
+                <strong>Gateway Sync Token</strong>
+                {props.syncToken ? (
+                  <>
+                    <code className="token-value">{props.syncToken}</code>
+                    <div className="landing-step-actions">
+                      <button type="button" className="token-button" onClick={props.onCopyToken}>
+                        Copy Token
+                      </button>
+                      <button type="button" className="token-button token-button-secondary" onClick={props.onGenerateToken} disabled={props.tokenBusy}>
+                        {props.tokenBusy ? "Generating..." : "Generate New Token"}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="landing-step-actions">
+                    <button type="button" className="token-button" onClick={props.onGenerateToken} disabled={props.tokenBusy}>
+                      {props.tokenBusy ? "Generating..." : "Generate Sync Token"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         </article>
         <article className={`landing-step ${props.stepTwoReady ? "is-complete" : ""}`}>
@@ -432,10 +467,13 @@ export default function App() {
   const [selectedAccountId, setSelectedAccountId] = useState(backendConfig.accountId);
   const [gatewayReady, setGatewayReady] = useState(false);
   const [dashboardUnlocked, setDashboardUnlocked] = useState(false);
+  const [syncToken, setSyncToken] = useState("");
+  const [tokenBusy, setTokenBusy] = useState(false);
   const autoConnectStartedRef = useRef(false);
   const backendPollTimerRef = useRef<number | null>(null);
   const reportRef = useRef<WealthReport | null>(null);
   const selectedAccountRef = useRef(selectedAccountId);
+  const tokenLoadedForAccountRef = useRef("");
   const deferredHistory = useDeferredValue(history);
 
   useEffect(() => {
@@ -525,6 +563,39 @@ export default function App() {
     }
 
     return (await response.json()) as { user: BackendUser; accounts: BackendAccount[] };
+  };
+
+  const listGatewayTokens = async (baseUrl: string, accountId: string) => {
+    const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+    const response = await fetch(`${normalizedBaseUrl}/api/accounts/${encodeURIComponent(accountId)}/gateway-tokens`, {
+      credentials: "include",
+    });
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        throw new Error("AUTH_REQUIRED");
+      }
+      throw new Error(`Gateway token list failed with ${response.status}.`);
+    }
+
+    return (await response.json()) as { tokens: GatewayToken[] };
+  };
+
+  const createGatewayToken = async (baseUrl: string, accountId: string) => {
+    const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+    const response = await fetch(`${normalizedBaseUrl}/api/accounts/${encodeURIComponent(accountId)}/gateway-tokens`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: "Primary Gateway" }),
+    });
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        throw new Error("AUTH_REQUIRED");
+      }
+      throw new Error(`Gateway token create failed with ${response.status}.`);
+    }
+
+    return (await response.json()) as GatewayToken;
   };
 
   const isSuspiciousDrop = (previous: WealthReport | null, next: WealthReport) => {
@@ -624,6 +695,38 @@ export default function App() {
 
   const signInWithDiscord = () => {
     window.location.href = `${effectiveBackendUrl.replace(/\/+$/, "")}/auth/discord/start?returnTo=${encodeURIComponent(window.location.href)}`;
+  };
+
+  const ensureSyncToken = async (forceNew = false) => {
+    if (!user || !selectedAccountId) {
+      return;
+    }
+
+    setTokenBusy(true);
+    try {
+      if (!forceNew) {
+        const existing = await listGatewayTokens(effectiveBackendUrl, selectedAccountId);
+        if (existing.tokens.length > 0) {
+          setSyncToken("");
+          return;
+        }
+      }
+
+      const created = await createGatewayToken(effectiveBackendUrl, selectedAccountId);
+      setSyncToken(created.token ?? "");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to prepare a gateway token.");
+    } finally {
+      setTokenBusy(false);
+    }
+  };
+
+  const copySyncToken = async () => {
+    if (!syncToken) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(syncToken);
   };
 
   const logout = async () => {
@@ -738,6 +841,18 @@ export default function App() {
     };
   }, [backendMode, user, selectedAccountId, previewDashboard, effectiveBackendUrl]);
 
+  useEffect(() => {
+    if (!user || !selectedAccountId || previewDashboard) {
+      return;
+    }
+    if (tokenLoadedForAccountRef.current === selectedAccountId) {
+      return;
+    }
+
+    tokenLoadedForAccountRef.current = selectedAccountId;
+    void ensureSyncToken(false);
+  }, [user, selectedAccountId, previewDashboard]);
+
   const stepOneReady = !!user && !authRequired;
   const stepTwoReady = gatewayReady;
   const showDashboard = previewDashboard ? !!report && dashboardUnlocked : backendMode && !!user && !!selectedAccountId && !authRequired && dashboardUnlocked;
@@ -809,6 +924,10 @@ export default function App() {
           stepOneReady={stepOneReady}
           stepTwoReady={stepTwoReady}
           onOpenDashboard={() => setDashboardUnlocked(true)}
+          syncToken={syncToken}
+          tokenBusy={tokenBusy}
+          onGenerateToken={() => void ensureSyncToken(true)}
+          onCopyToken={() => void copySyncToken()}
         />
       ) : null}
 
