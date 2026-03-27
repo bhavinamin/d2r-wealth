@@ -158,14 +158,27 @@
         transform: translateY(1px);
       }
 
-      .primary {
-        background: linear-gradient(135deg, #f0b763, #c6752c);
-        color: #1a140f;
-      }
-
       .secondary {
         background: rgba(255, 255, 255, 0.08);
         color: #efe7d5;
+      }
+
+      .discord-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: #5865f2;
+        color: #ffffff;
+      }
+
+      .discord-button:hover {
+        background: #6672f5;
+      }
+
+      .discord-glyph {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 18px;
       }
 
       .danger {
@@ -251,10 +264,18 @@
         <div class="section-title">Account Link</div>
         <div class="pair-panel">
           <p id="pair-copy" class="pair-copy">Sign in with Discord and link this PC to your D2 Wealth account.</p>
-          <div class="action-row">
-            <button type="button" class="primary" id="pair-gateway">Sign In with Discord &amp; Pair</button>
-            <button type="button" class="danger hidden" id="disconnect-gateway">Disconnect</button>
-          </div>
+            <div class="action-row">
+              <button type="button" class="discord-button" id="pair-gateway">
+                <svg class="discord-glyph" viewBox="0 0 127.14 96.36" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0 105.89 105.89 0 0 0 19.39 8.09C2.79 32.65-1.71 56.6.54 80.21h.02a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.84-5.18c.91-.66 1.8-1.35 2.66-2.08 20.87 9.53 43.46 9.53 64.08 0 .87.73 1.76 1.42 2.66 2.08a68.68 68.68 0 0 1-10.86 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14h.02c2.64-27.38-4.5-51.11-18.72-72.15ZM42.45 65.69C36.18 65.69 31 59.96 31 52.91s5.06-12.78 11.45-12.78c6.45 0 11.57 5.78 11.46 12.78 0 7.05-5.06 12.78-11.46 12.78Zm42.24 0c-6.27 0-11.45-5.73-11.45-12.78S78.3 40.13 84.69 40.13c6.45 0 11.57 5.78 11.45 12.78 0 7.05-5.05 12.78-11.45 12.78Z"
+                  />
+                </svg>
+                <span>Sign in with Discord</span>
+              </button>
+              <button type="button" class="danger hidden" id="disconnect-gateway">Disconnect</button>
+            </div>
         </div>
       </section>
 
@@ -289,7 +310,9 @@
         syncPill.textContent = syncConnected ? "Connected" : status.syncToken ? "Syncing" : "Idle";
         syncPill.className = `state-pill ${syncConnected ? "connected" : "idle"}`;
 
-        pairGateway.textContent = status.syncToken ? "Reconnect Account" : "Sign In with Discord & Pair";
+        pairGateway.innerHTML = status.syncToken
+          ? '<svg class="discord-glyph" viewBox="0 0 127.14 96.36" aria-hidden="true"><path fill="currentColor" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0 105.89 105.89 0 0 0 19.39 8.09C2.79 32.65-1.71 56.6.54 80.21h.02a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.84-5.18c.91-.66 1.8-1.35 2.66-2.08 20.87 9.53 43.46 9.53 64.08 0 .87.73 1.76 1.42 2.66 2.08a68.68 68.68 0 0 1-10.86 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14h.02c2.64-27.38-4.5-51.11-18.72-72.15ZM42.45 65.69C36.18 65.69 31 59.96 31 52.91s5.06-12.78 11.45-12.78c6.45 0 11.57 5.78 11.46 12.78 0 7.05-5.06 12.78-11.46 12.78Zm42.24 0c-6.27 0-11.45-5.73-11.45-12.78S78.3 40.13 84.69 40.13c6.45 0 11.57 5.78 11.45 12.78 0 7.05-5.05 12.78-11.45 12.78Z"/></svg><span>Reconnect Account</span>'
+          : '<svg class="discord-glyph" viewBox="0 0 127.14 96.36" aria-hidden="true"><path fill="currentColor" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0 105.89 105.89 0 0 0 19.39 8.09C2.79 32.65-1.71 56.6.54 80.21h.02a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.84-5.18c.91-.66 1.8-1.35 2.66-2.08 20.87 9.53 43.46 9.53 64.08 0 .87.73 1.76 1.42 2.66 2.08a68.68 68.68 0 0 1-10.86 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14h.02c2.64-27.38-4.5-51.11-18.72-72.15ZM42.45 65.69C36.18 65.69 31 59.96 31 52.91s5.06-12.78 11.45-12.78c6.45 0 11.57 5.78 11.46 12.78 0 7.05-5.06 12.78-11.46 12.78Zm42.24 0c-6.27 0-11.45-5.73-11.45-12.78S78.3 40.13 84.69 40.13c6.45 0 11.57 5.78 11.45 12.78 0 7.05-5.05 12.78-11.45 12.78Z"/></svg><span>Sign in with Discord</span>';
         disconnectGateway.classList.toggle("hidden", !status.syncToken);
         pairCopy.innerHTML = status.syncToken
           ? "This PC is linked to your D2 Wealth account. Reconnect if you want to switch the linked Discord account or refresh the pairing."

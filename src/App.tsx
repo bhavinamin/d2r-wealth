@@ -342,13 +342,11 @@ function HistoryChart(props: { data: WealthSnapshot[] }) {
 }
 
 function GettingStarted(props: {
-  onSignIn?: () => void;
-  stepOneReady: boolean;
-  stepTwoReady: boolean;
-  pairingReady: boolean;
+  appReady: boolean;
+  authReady: boolean;
+  pairingPending: boolean;
   pairingBusy: boolean;
-  pairingId: string;
-  onApprovePairing: () => void;
+  onOpenGatewayApp: () => void;
 }) {
   return (
     <section className="landing-shell">
@@ -374,53 +372,41 @@ function GettingStarted(props: {
       </section>
 
       <section className="landing-guide">
-        <article className={`landing-step ${props.stepOneReady ? "is-complete" : ""}`}>
-          <span className="landing-step-number">{props.stepOneReady ? "✓" : "1"}</span>
+        <article className={`landing-step ${props.appReady ? "is-complete" : ""}`}>
+          <span className="landing-step-number">{props.appReady ? "✓" : "1"}</span>
           <div>
-            <h3>Sign in with Discord</h3>
-            <p>Sign in with Discord to access your D2 Wealth account and authorize your local gateway.</p>
+            <h3>Install the Gateway, Set Your Save Path, and Sign In</h3>
+            <p>The Windows gateway handles Discord sign-in, pairs this PC to your account, and syncs in the background.</p>
             <div className="landing-step-actions">
-              <button type="button" className="discord-button" onClick={props.onSignIn} disabled={props.stepOneReady}>
+              <a className="token-button token-button-secondary" href={GATEWAY_RELEASE_URL} target="_blank" rel="noreferrer">
+                Download Windows Gateway
+              </a>
+              <button type="button" className="discord-button" onClick={props.onOpenGatewayApp}>
                 <svg className="discord-glyph" viewBox="0 0 127.14 96.36" aria-hidden="true">
                   <path
                     fill="currentColor"
                     d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0 105.89 105.89 0 0 0 19.39 8.09C2.79 32.65-1.71 56.6.54 80.21h.02a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.84-5.18c.91-.66 1.8-1.35 2.66-2.08 20.87 9.53 43.46 9.53 64.08 0 .87.73 1.76 1.42 2.66 2.08a68.68 68.68 0 0 1-10.86 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14h.02c2.64-27.38-4.5-51.11-18.72-72.15ZM42.45 65.69C36.18 65.69 31 59.96 31 52.91s5.06-12.78 11.45-12.78c6.45 0 11.57 5.78 11.46 12.78 0 7.05-5.06 12.78-11.46 12.78Zm42.24 0c-6.27 0-11.45-5.73-11.45-12.78S78.3 40.13 84.69 40.13c6.45 0 11.57 5.78 11.45 12.78 0 7.05-5.05 12.78-11.45 12.78Z"
                   />
                 </svg>
-                <span>{props.stepOneReady ? "Discord Connected" : "Sign in with Discord"}</span>
+                <span>Open Gateway App</span>
               </button>
             </div>
-          </div>
-        </article>
-        <article className={`landing-step ${props.stepTwoReady ? "is-complete" : ""}`}>
-          <span className="landing-step-number">{props.stepTwoReady ? "✓" : "2"}</span>
-          <div>
-            <h3>Set up the local gateway</h3>
-            <p>Open the Windows tray app, point it at your D2R save folder, then pair it to this Discord account.</p>
-            <div className="landing-step-status">{props.stepTwoReady ? "Gateway is paired and syncing." : "Waiting for a paired local gateway."}</div>
-            {!props.stepTwoReady ? (
-              <div className="landing-step-help">
-                <strong>What is the local gateway?</strong>
-                <ul className="landing-step-list">
-                  <li>
-                    <a href={GATEWAY_RELEASE_URL} target="_blank" rel="noreferrer">
-                      Download the D2 Wealth Gateway for Windows
-                    </a>
-                    .
-                  </li>
-                  <li>Set the save folder to <code>Saved Games\Diablo II Resurrected</code>.</li>
-                  <li>In the tray app, click <code>Pair with D2 Wealth</code>.</li>
-                  <li>Leave the gateway running in the tray.</li>
-                </ul>
-                {props.stepOneReady && props.pairingId ? (
-                  <div className="landing-step-actions">
-                    <button type="button" className="token-button" onClick={props.onApprovePairing} disabled={props.pairingBusy || props.pairingReady}>
-                      {props.pairingBusy ? "Authorizing..." : props.pairingReady ? "Gateway Authorized" : "Approve Gateway Pairing"}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+            <div className="landing-step-help">
+              <strong>Status</strong>
+              <ul className="landing-step-list">
+                <li>{props.authReady ? "Discord session is active." : "Waiting for the gateway to start Discord sign-in."}</li>
+                <li>
+                  {props.appReady
+                    ? "Gateway is paired and syncing."
+                    : props.pairingPending
+                      ? props.pairingBusy
+                        ? "Authorizing gateway pairing..."
+                        : "Waiting for pairing approval to finish."
+                      : "Open the gateway app to begin pairing."}
+                </li>
+                <li>Inside the app, set the save folder to <code>Saved Games\Diablo II Resurrected</code>.</li>
+              </ul>
+            </div>
           </div>
         </article>
       </section>
@@ -445,7 +431,6 @@ export default function App() {
   const [gatewayReady, setGatewayReady] = useState(false);
   const [pairingId, setPairingId] = useState(derivePendingPairingId());
   const [pairingBusy, setPairingBusy] = useState(false);
-  const [pairingReady, setPairingReady] = useState(false);
   const autoConnectStartedRef = useRef(false);
   const backendPollTimerRef = useRef<number | null>(null);
   const reportRef = useRef<WealthReport | null>(null);
@@ -549,7 +534,6 @@ export default function App() {
     setHistory([]);
     setAuthRequired(true);
     setGatewayReady(false);
-    setPairingReady(false);
   };
 
   const approveGatewayPairing = async (baseUrl: string, nextPairingId: string) => {
@@ -663,8 +647,9 @@ export default function App() {
     };
   };
 
-  const signInWithDiscord = () => {
-    window.location.href = `${effectiveBackendUrl.replace(/\/+$/, "")}/auth/discord/start?returnTo=${encodeURIComponent(window.location.href)}`;
+  const openGatewayApp = () => {
+    const backend = encodeURIComponent(effectiveBackendUrl.replace(/\/+$/, ""));
+    window.location.href = `d2wealth://pair?backend=${backend}`;
   };
 
   const completeGatewayPairing = async () => {
@@ -675,7 +660,6 @@ export default function App() {
     setPairingBusy(true);
     try {
       await approveGatewayPairing(effectiveBackendUrl, pairingId);
-      setPairingReady(true);
       const url = new URL(window.location.href);
       url.searchParams.delete("pair");
       window.history.replaceState({}, "", url.toString());
@@ -795,8 +779,16 @@ export default function App() {
     };
   }, [backendMode, user, selectedAccountId, previewDashboard, effectiveBackendUrl]);
 
-  const stepOneReady = !!user && !authRequired;
-  const stepTwoReady = stepOneReady && gatewayReady;
+  useEffect(() => {
+    if (!user || !pairingId || pairingBusy) {
+      return;
+    }
+
+    void completeGatewayPairing();
+  }, [user, pairingId]);
+
+  const authReady = !!user && !authRequired;
+  const appReady = authReady && gatewayReady;
   const showDashboard = previewDashboard ? !!report : backendMode && !!user && !!selectedAccountId && !authRequired && gatewayReady;
 
   return (
@@ -856,13 +848,11 @@ export default function App() {
       {error ? <div className="banner error">{error}</div> : null}
       {!showDashboard ? (
         <GettingStarted
-          onSignIn={signInWithDiscord}
-          stepOneReady={stepOneReady}
-          stepTwoReady={stepTwoReady}
-          pairingReady={pairingReady}
+          appReady={appReady}
+          authReady={authReady}
+          pairingPending={Boolean(pairingId)}
           pairingBusy={pairingBusy}
-          pairingId={pairingId}
-          onApprovePairing={() => void completeGatewayPairing()}
+          onOpenGatewayApp={openGatewayApp}
         />
       ) : null}
 

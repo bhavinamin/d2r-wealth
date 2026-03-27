@@ -16,6 +16,7 @@ let isQuitting = false;
 let connectedViewers = 0;
 let backendConnected = false;
 let previousBackendConnected = null;
+let pairingPromise = null;
 
 const trayEntryArg = path.join(__dirname, "tray.mjs");
 const gatewayServerEntry = path.join(__dirname, "server.mjs");
@@ -28,6 +29,7 @@ const preloadScript = path.join(__dirname, "preload.cjs");
 const menuHtml = path.join(__dirname, "menu.html");
 const menuPreloadScript = path.join(__dirname, "menu-preload.cjs");
 const settingsFilePath = () => path.join(app.getPath("userData"), "settings.json");
+const protocolName = "d2wealth";
 
 const trayImage = (connected) => nativeImage.createFromPath(connected ? trayIconPaths.connected : trayIconPaths.disconnected).resize({ width: 16, height: 16 });
 const currentSettings = () => readGatewaySettings(settingsFilePath());
@@ -89,50 +91,85 @@ const disconnectGatewaySync = async (settings, tokenOverride = settings.syncToke
 };
 
 const pairGatewaySync = async () => {
-  const settings = currentSettings();
-  const backendUrl = String(settings.backendUrl ?? "").trim().replace(/\/+$/, "");
-  if (!backendUrl) {
-    throw new Error("Gateway backend URL is not configured.");
+  if (pairingPromise) {
+    return pairingPromise;
   }
 
-  if (settings.syncToken) {
-    await disconnectGatewaySync(settings);
-  }
+  pairingPromise = (async () => {
+    try {
+      const settings = currentSettings();
+      const backendUrl = String(settings.backendUrl ?? "").trim().replace(/\/+$/, "");
+      if (!backendUrl) {
+        throw new Error("Gateway backend URL is not configured.");
+      }
 
-  const pairingResponse = await postJson(`${backendUrl}/api/gateway/pairing-sessions`, {
-    clientId: settings.clientId,
-  });
-  if (!pairingResponse.ok) {
-    throw new Error(`Gateway pairing start failed with ${pairingResponse.status}`);
-  }
+      if (settings.syncToken) {
+        await disconnectGatewaySync(settings);
+      }
 
-  const pairing = await pairingResponse.json();
-  await shell.openExternal(pairing.pairingUrl);
+      const pairingResponse = await postJson(`${backendUrl}/api/gateway/pairing-sessions`, {
+        clientId: settings.clientId,
+      });
+      if (!pairingResponse.ok) {
+        throw new Error(`Gateway pairing start failed with ${pairingResponse.status}`);
+      }
 
-  const deadline = Date.now() + 10 * 60 * 1000;
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    const claimResponse = await postJson(`${backendUrl}/api/gateway/pairing-sessions/${encodeURIComponent(pairing.pairingId)}/claim`, {
-      pairingSecret: pairing.pairingSecret,
-    });
+      const pairing = await pairingResponse.json();
+      await shell.openExternal(pairing.pairingUrl);
 
-    if (claimResponse.status === 202) {
-      continue;
+      const deadline = Date.now() + 10 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const claimResponse = await postJson(`${backendUrl}/api/gateway/pairing-sessions/${encodeURIComponent(pairing.pairingId)}/claim`, {
+          pairingSecret: pairing.pairingSecret,
+        });
+
+        if (claimResponse.status === 202) {
+          continue;
+        }
+
+        if (!claimResponse.ok) {
+          throw new Error(`Gateway pairing claim failed with ${claimResponse.status}`);
+        }
+
+        const claim = await claimResponse.json();
+        const saved = writeGatewaySettings({ ...settings, syncToken: claim.gatewayToken }, settingsFilePath());
+        applyAutoStart(saved.autoStart);
+        await restartGatewayProcess();
+        await broadcastStatus();
+        return;
+      }
+
+      throw new Error("Gateway pairing timed out.");
+    } finally {
+      pairingPromise = null;
     }
+  })();
 
-    if (!claimResponse.ok) {
-      throw new Error(`Gateway pairing claim failed with ${claimResponse.status}`);
-    }
+  return pairingPromise;
+};
 
-    const claim = await claimResponse.json();
-    const saved = writeGatewaySettings({ ...settings, syncToken: claim.gatewayToken }, settingsFilePath());
-    applyAutoStart(saved.autoStart);
-    await restartGatewayProcess();
-    await broadcastStatus();
+const protocolArg = (argv) => argv.find((value) => typeof value === "string" && value.startsWith(`${protocolName}://`)) ?? null;
+
+const handleProtocolLaunch = async (rawUrl) => {
+  if (!rawUrl) {
     return;
   }
 
-  throw new Error("Gateway pairing timed out.");
+  try {
+    const url = new URL(rawUrl);
+    const route = `${url.hostname}${url.pathname}`.replace(/\/+$/, "");
+    if (route !== "pair" && route !== "/pair") {
+      return;
+    }
+    const backendUrl = String(url.searchParams.get("backend") ?? "").trim();
+    if (backendUrl) {
+      writeGatewaySettings({ ...currentSettings(), backendUrl }, settingsFilePath());
+    }
+    await showSettingsWindow();
+    await pairGatewaySync();
+  } catch {
+  }
 };
 
 const fetchGatewayStatus = async () => {
@@ -386,9 +423,43 @@ const bootstrap = async () => {
   notify("D2 Wealth Gateway", "Gateway is running in the Windows system tray.", false);
 };
 
+const registerProtocolClient = () => {
+  if (app.isPackaged) {
+    app.setAsDefaultProtocolClient(protocolName);
+    return;
+  }
+
+  if (process.defaultApp && process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(protocolName, process.execPath, [path.resolve(process.argv[1])]);
+    return;
+  }
+
+  app.setAsDefaultProtocolClient(protocolName);
+};
+
+const singleInstance = app.requestSingleInstanceLock();
+
+if (!singleInstance) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    const rawUrl = protocolArg(argv);
+    if (rawUrl) {
+      void handleProtocolLaunch(rawUrl);
+    } else {
+      void showSettingsWindow();
+    }
+  });
+}
+
 app.whenReady().then(async () => {
   app.setAppUserModelId("d2-wealth.gateway");
+  registerProtocolClient();
   await bootstrap();
+  const launchUrl = protocolArg(process.argv);
+  if (launchUrl) {
+    void handleProtocolLaunch(launchUrl);
+  }
 
   ipcMain.handle("gateway:status", async () => {
     await broadcastStatus();
