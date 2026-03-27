@@ -8,7 +8,7 @@ Build the dashboard experience around wealth tracking, item inspection, and hist
 - Build upload flows for save files and the local gateway.
 - Render total account wealth, per-character wealth, and rune inventory clearly.
 - Show a realtime chart of wealth accumulation over time.
-- Display highest-value items from personal stash and shared stash in ranked columns.
+- Display highest-value items from personal stash, carried inventory, and shared stash in distinct ranked columns.
 - Keep high-density loot detail separated from the main account overview when the page starts feeling overloaded.
 
 ## UI Direction
@@ -28,5 +28,5 @@ Build the dashboard experience around wealth tracking, item inspection, and hist
 
 ## Visual Hierarchy
 - `Overview`: connection controls, quick totals, history, roster, notes.
-- `Loot Ledger`: highest-value character stash items, highest-value shared stash items, rune inventory.
+- `Loot Ledger`: highest-value character stash items, highest-value inventory items, highest-value shared stash items, rune inventory.
 - The loot view should treat item ranking as the centerpiece and avoid burying it under onboarding copy.

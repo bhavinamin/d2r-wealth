@@ -34,6 +34,7 @@ const lemThreshold = market.runeValues.Lem ?? 0.03;
 const istThreshold = market.runeValues.Ist ?? 0.125;
 const smallestRuneValue = runeTradeScale.find((rune) => rune.valueHr > 0)?.valueHr ?? 0.003125;
 const hrTickSize = smallestRuneValue;
+const EQUIPPED_DROP_GUARD_HR = 0.05;
 
 const classPortraits: Record<string, string> = {
   amazon: amazonPortrait,
@@ -253,11 +254,16 @@ export default function App() {
   const [gatewayUrl, setGatewayUrl] = useState("http://127.0.0.1:3187");
   const [gatewayStatus, setGatewayStatus] = useState<string>("Disconnected");
   const gatewayEventsRef = useRef<EventSource | null>(null);
+  const reportRef = useRef<WealthReport | null>(null);
   const deferredHistory = useDeferredValue(history);
 
   useEffect(() => {
     setHistory(loadHistory());
   }, []);
+
+  useEffect(() => {
+    reportRef.current = report;
+  }, [report]);
 
   useEffect(() => {
     return () => {
@@ -295,6 +301,133 @@ export default function App() {
     applyReport(nextReport);
   };
 
+  const isSuspiciousDrop = (previous: WealthReport | null, next: WealthReport) => {
+    if (!previous) {
+      return false;
+    }
+
+    if (previous.snapshot.characterCount !== next.snapshot.characterCount) {
+      return false;
+    }
+
+    return next.totalHr < previous.totalHr * 0.7;
+  };
+
+  const malformedItemCount = (reportToCheck: WealthReport) =>
+    reportToCheck.allValuedItems.filter((item) => item.name.includes("undefined") || item.name === "Unknown Item").length;
+
+  const isDegradedAutoReport = (previous: WealthReport | null, next: WealthReport) => {
+    if (!previous) {
+      return false;
+    }
+
+    const previousMalformed = malformedItemCount(previous);
+    const nextMalformed = malformedItemCount(next);
+    const previousEquippedItems = previous.allValuedItems.filter((item) => item.location === "equipped");
+    const nextEquippedItems = next.allValuedItems.filter((item) => item.location === "equipped");
+    const equippedDrop = next.equippedHr < previous.equippedHr - EQUIPPED_DROP_GUARD_HR;
+    const sharedStable = Math.abs(next.sharedHr - previous.sharedHr) < 0.05;
+    const runeStable = Math.abs(next.runeHr - previous.runeHr) < 0.05;
+    const characterStashCollapsed =
+      next.topCharacterStash.length < previous.topCharacterStash.length &&
+      next.stashHr < previous.stashHr;
+    const equippedRosterShrank = nextEquippedItems.length < previousEquippedItems.length;
+
+    return (
+      (nextMalformed > previousMalformed + 5 || equippedRosterShrank) &&
+      equippedDrop &&
+      sharedStable &&
+      runeStable &&
+      characterStashCollapsed
+    );
+  };
+
+  const recentHistoryBaseline = () => {
+    const recent = history.slice(-20);
+    if (!recent.length) {
+      return null;
+    }
+
+    return recent.reduce((best, snapshot) => ({
+      ...best,
+      totalHr: Math.max(best.totalHr, snapshot.totalHr),
+      equippedHr: Math.max(best.equippedHr, snapshot.equippedHr),
+      runeHr: Math.max(best.runeHr, snapshot.runeHr),
+      sharedHr: Math.max(best.sharedHr, snapshot.sharedHr),
+      stashHr: Math.max(best.stashHr, snapshot.stashHr),
+      characterCount: Math.max(best.characterCount, snapshot.characterCount),
+    }));
+  };
+
+  const stabilizeAgainstHistory = (next: WealthReport) => {
+    const baseline = recentHistoryBaseline();
+    if (!baseline) {
+      return next;
+    }
+
+    const runeStable = Math.abs(next.runeHr - baseline.runeHr) < 0.05;
+    const sharedStable = Math.abs(next.sharedHr - baseline.sharedHr) < 0.05;
+    const equippedDrop = baseline.equippedHr - next.equippedHr;
+
+    if (!(runeStable && sharedStable && equippedDrop > EQUIPPED_DROP_GUARD_HR)) {
+      return next;
+    }
+
+    const adjustedEquippedHr = baseline.equippedHr;
+    const adjustedTotalHr = Number((next.totalHr - next.equippedHr + adjustedEquippedHr).toFixed(4));
+    const adjustedCharacters =
+      next.characters.length === 1
+        ? next.characters.map((character) => ({
+            ...character,
+            equippedHr: Number(adjustedEquippedHr.toFixed(3)),
+          }))
+        : next.characters;
+
+    return {
+      ...next,
+      totalHr: adjustedTotalHr,
+      equippedHr: adjustedEquippedHr,
+      characters: adjustedCharacters,
+      snapshot: {
+        ...next.snapshot,
+        totalHr: adjustedTotalHr,
+        equippedHr: adjustedEquippedHr,
+      },
+    };
+  };
+
+  const refreshGatewaySnapshot = async (baseUrl: string) => {
+    let lastReport: WealthReport | null = null;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const manifestResponse = await fetch(`${baseUrl}/manifest`);
+      if (!manifestResponse.ok) {
+        throw new Error(`Gateway manifest request failed with ${manifestResponse.status}.`);
+      }
+      await manifestResponse.json();
+
+      const reportResponse = await fetch(`${baseUrl}/report`);
+      if (!reportResponse.ok) {
+        throw new Error(`Gateway report request failed with ${reportResponse.status}.`);
+      }
+
+      const rawReport = (await reportResponse.json()) as WealthReport;
+      const nextReport = stabilizeAgainstHistory(rawReport);
+      lastReport = nextReport;
+
+      if ((!isSuspiciousDrop(reportRef.current, nextReport) && !isDegradedAutoReport(reportRef.current, nextReport)) || attempt === 2) {
+        applyReport(nextReport);
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+
+    if (lastReport) {
+      applyReport(lastReport);
+    }
+  };
+
   const onImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files?.length) {
@@ -321,7 +454,7 @@ export default function App() {
 
     try {
       const baseUrl = gatewayUrl.replace(/\/+$/, "");
-      await fetchGatewaySnapshot(baseUrl);
+      await refreshGatewaySnapshot(baseUrl);
       setGatewayStatus("Connected");
 
       gatewayEventsRef.current?.close();
@@ -334,7 +467,7 @@ export default function App() {
         setGatewayStatus("Syncing...");
         try {
           void JSON.parse((event as MessageEvent).data);
-          await fetchGatewaySnapshot(baseUrl);
+          await refreshGatewaySnapshot(baseUrl);
           setGatewayStatus("Connected");
         } catch (caught) {
           setGatewayStatus("Error");
@@ -491,6 +624,7 @@ export default function App() {
 
             <section className="loot-grid">
               <TopItemsTable title="Highest Value Character Stash Items" items={report?.topCharacterStash ?? []} />
+              <TopItemsTable title="Highest Value Inventory Items" items={report?.topInventory ?? []} />
               <TopItemsTable title="Highest Value Shared Stash Items" items={report?.topSharedStash ?? []} showSource={false} showQuantity />
               <section className="panel rune-panel">
                 <div className="panel-header">

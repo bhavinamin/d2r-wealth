@@ -17,7 +17,7 @@ It reads character saves and shared stash files, prices runes in `HR`, values eq
   - material/rune inventory is read from the D2R v105 stackable stash sector, not from the old chronicle fallback
 - UI:
   - `Overview` page focuses on connection state, quick account totals, history, and character roster
-  - `Loot Ledger` page isolates highest-value stash items and rune inventory into a dedicated loot view
+  - `Loot Ledger` page isolates highest-value character stash items, carried inventory items, shared stash items, and rune inventory into a dedicated loot view
 
 ## What Works
 
@@ -26,6 +26,7 @@ It reads character saves and shared stash files, prices runes in `HR`, values eq
 - Shared stash valuation for keys, essences, gems, and worldstone shards
 - Equipped gear valuation, including runeword recipe fallback like `Enigma`
 - Ranked character stash and shared stash value tables
+- Separate carried inventory view so identified loot in inventory does not masquerade as stash value
 - Wealth history chart stored locally in the browser
 - Rune inventory with exact trade-equivalent breakdown tags
 - Character roster tags for `Classic`, `LoD`, or `ROTW`
@@ -33,6 +34,7 @@ It reads character saves and shared stash files, prices runes in `HR`, values eq
 ## Known Limits
 
 - Personal stash parsing for heavily modded `.d2s` item records is still conservative
+- Live character parses can degrade in-session on some modded saves; the app guards against suspicious equipped-value dips until a clean save lands on disk
 - Rare, crafted, jewel, charm, and affix-sensitive item pricing is still shallow
 - Some low-confidence shared-stash page parses are intentionally suppressed from top-value views unless they price cleanly
 - The local gateway is HTTP; a remotely hosted HTTPS frontend will need a secure local bridge
@@ -74,3 +76,4 @@ The gateway is intended to point at a live D2R save directory such as:
 - worldstone shard valuation currently comes from the installed Single Player Trading Market mod recipes
 - `src/App.tsx` contains the current dashboard behavior and trade-tag UI rules
 - `src/App.tsx` now separates the product into `Overview` and `Loot Ledger` views
+- `Loot Ledger` keeps character stash and carried inventory in separate panels

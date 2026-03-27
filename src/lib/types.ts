@@ -62,6 +62,7 @@ export type WealthReport = {
   }>;
   runeSummary: RuneSummary[];
   topCharacterStash: ValuedItem[];
+  topInventory: ValuedItem[];
   topSharedStash: ValuedItem[];
   allValuedItems: ValuedItem[];
   unmatchedItems: Array<{ owner: string; name: string; location: ItemLocation }>;

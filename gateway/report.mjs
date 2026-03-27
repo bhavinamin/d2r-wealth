@@ -535,7 +535,12 @@ export const buildGatewayReport = async (saveDir) => {
     characters: characterSummaries,
     runeSummary,
     topCharacterStash: valuedItems
-      .filter((item) => item.location === "character-stash" || item.location === "inventory" || item.location === "cube")
+      .filter((item) => item.location === "character-stash")
+      .filter((item) => item.valueHr > 0)
+      .sort((left, right) => right.valueHr - left.valueHr)
+      .slice(0, 12),
+    topInventory: valuedItems
+      .filter((item) => item.location === "inventory" || item.location === "cube")
       .filter((item) => item.valueHr > 0)
       .sort((left, right) => right.valueHr - left.valueHr)
       .slice(0, 12),

@@ -14,6 +14,11 @@ const ALLOWED_EXTENSIONS = new Set([".d2s", ".d2i", ".sss", ".cst"]);
 const clients = new Set();
 /** @type {fs.FSWatcher | null} */
 let watcher = null;
+/** @type {NodeJS.Timeout | null} */
+let changeTimer = null;
+/** @type {Set<string>} */
+const pendingChanges = new Set();
+const CHANGE_DEBOUNCE_MS = 1500;
 
 const sendJson = (response, statusCode, body) => {
   const payload = JSON.stringify(body);
@@ -69,11 +74,21 @@ const startWatcher = () => {
       return;
     }
 
-    sendEvent("files-changed", {
-      changed: filename,
-      files: listSaveFiles(),
-      emittedAt: new Date().toISOString(),
-    });
+    pendingChanges.add(filename);
+    if (changeTimer) {
+      clearTimeout(changeTimer);
+    }
+
+    changeTimer = setTimeout(() => {
+      const changed = Array.from(pendingChanges);
+      pendingChanges.clear();
+      changeTimer = null;
+      sendEvent("files-changed", {
+        changed,
+        files: listSaveFiles(),
+        emittedAt: new Date().toISOString(),
+      });
+    }, CHANGE_DEBOUNCE_MS);
   });
 };
 
