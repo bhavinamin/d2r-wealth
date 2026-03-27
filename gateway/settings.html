@@ -7,59 +7,123 @@
     <style>
       :root {
         color-scheme: dark;
-        font-family: "Segoe UI", sans-serif;
-        background: #14100d;
-        color: #efe7d5;
+        font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+        background: #14110f;
+        color: #f3ede1;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at top, rgba(207, 116, 42, 0.18), transparent 34%),
+          linear-gradient(180deg, #191410, #0f0c09);
       }
 
       body {
-        margin: 0;
-        background:
-          radial-gradient(circle at top, rgba(201, 112, 43, 0.18), transparent 36%),
-          linear-gradient(180deg, #18110d, #0d0a08);
+        padding: 14px;
       }
 
       main {
-        padding: 24px;
+        height: 100%;
         display: grid;
-        gap: 18px;
+        grid-template-rows: auto auto auto 1fr;
+        gap: 12px;
       }
 
-      .panel {
-        border-radius: 18px;
-        border: 1px solid rgba(230, 191, 132, 0.16);
-        background: rgba(255, 255, 255, 0.03);
-        padding: 18px;
+      .shell {
+        border: 1px solid rgba(229, 182, 119, 0.16);
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 16px;
+        box-shadow: 0 18px 34px rgba(0, 0, 0, 0.34);
       }
 
-      h1, h2, p {
+      .hero {
+        padding: 14px 16px 12px;
+      }
+
+      .hero-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .hero h1,
+      .section-title,
+      p {
         margin: 0;
       }
 
-      h1 {
-        font-size: 1.2rem;
-        color: #f2d7a8;
+      .hero h1 {
+        font-size: 1.02rem;
+        color: #f4d8a7;
+        letter-spacing: 0.02em;
       }
 
-      p {
-        color: rgba(239, 231, 213, 0.7);
-        line-height: 1.45;
+      .hero p {
+        margin-top: 6px;
+        color: rgba(243, 237, 225, 0.7);
+        font-size: 0.86rem;
+        line-height: 1.4;
       }
 
-      form {
-        display: grid;
-        gap: 14px;
+      .state-pill {
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(243, 237, 225, 0.82);
       }
 
-      label {
-        display: grid;
-        gap: 6px;
-        font-size: 0.9rem;
+      .state-pill.connected {
+        background: rgba(74, 153, 95, 0.22);
+        color: #89df9d;
       }
 
-      input {
+      .state-pill.idle {
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(243, 237, 225, 0.78);
+      }
+
+      .section {
+        padding: 14px 16px;
+      }
+
+      .section-title {
+        font-size: 0.76rem;
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+        color: rgba(243, 237, 225, 0.58);
+        margin-bottom: 10px;
+      }
+
+      .path-row,
+      .footer-row,
+      .action-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .path-row {
+        align-items: stretch;
+      }
+
+      input[type="text"] {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
         background: rgba(255, 255, 255, 0.05);
         color: inherit;
         padding: 10px 12px;
@@ -67,125 +131,143 @@
       }
 
       input[type="checkbox"] {
-        width: 18px;
-        height: 18px;
-        padding: 0;
+        width: 16px;
+        height: 16px;
+        margin: 0;
       }
 
-      .row {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 10px;
-      }
-
-      .toggle-row {
+      .checkbox-row {
         display: flex;
         align-items: center;
         gap: 10px;
-      }
-
-      .actions {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
-
-      .hidden {
-        display: none !important;
+        font-size: 0.85rem;
+        color: rgba(243, 237, 225, 0.78);
       }
 
       button {
         border: 0;
         border-radius: 12px;
-        padding: 10px 14px;
+        padding: 10px 12px;
         font: inherit;
         font-weight: 700;
         cursor: pointer;
-        color: #1a140f;
+        transition: transform 120ms ease, background 120ms ease, color 120ms ease;
+      }
+
+      button:active {
+        transform: translateY(1px);
+      }
+
+      .primary {
         background: linear-gradient(135deg, #f0b763, #c6752c);
+        color: #1a140f;
       }
 
-      button.secondary {
-        color: #efe7d5;
+      .secondary {
         background: rgba(255, 255, 255, 0.08);
+        color: #efe7d5;
       }
 
-      .status-grid {
+      .danger {
+        background: rgba(163, 51, 44, 0.22);
+        color: #ffb0a7;
+      }
+
+      .pair-panel {
         display: grid;
+        gap: 10px;
       }
 
-      .status-grid {
+      .pair-copy {
+        font-size: 0.84rem;
+        line-height: 1.45;
+        color: rgba(243, 237, 225, 0.74);
+      }
+
+      .pair-copy strong {
+        color: #f3ede1;
+      }
+
+      .meta-grid {
+        display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
+        gap: 8px;
       }
 
-      .status-card {
-        border-radius: 14px;
-        padding: 12px 14px;
-        background: rgba(255, 255, 255, 0.03);
+      .meta-card {
         border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 12px;
+        padding: 10px 11px;
       }
 
-      .status-card strong {
+      .meta-card span {
         display: block;
-        margin-top: 6px;
-        color: #f7d198;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: rgba(243, 237, 225, 0.52);
       }
 
-      .small {
-        font-size: 0.83rem;
+      .meta-card strong {
+        display: block;
+        margin-top: 5px;
+        font-size: 0.9rem;
+        color: #f4d8a7;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
-      .ok {
-        color: #69d58e;
+      .grow {
+        display: grid;
+        align-content: start;
+      }
+
+      .hidden {
+        display: none !important;
       }
     </style>
   </head>
   <body>
     <main>
-      <section class="panel">
-        <h1>D2 Wealth Gateway</h1>
-        <p>Runs in the Windows tray and serves your local D2R save report to the web dashboard.</p>
+      <section class="shell hero">
+        <div class="hero-top">
+          <h1>D2 Wealth Gateway</h1>
+          <span id="sync-pill" class="state-pill idle">Idle</span>
+        </div>
+        <p>Point this app at your Diablo II save folder, then sign in with Discord and pair once. After that it syncs in the background.</p>
       </section>
 
-      <section class="panel">
-        <form id="settings-form">
-          <label>
-            Save Directory
-            <div class="row">
-              <input id="saveDir" name="saveDir" />
-              <button type="button" class="secondary" id="browse">Browse</button>
-            </div>
-          </label>
+      <section class="shell section">
+        <div class="section-title">Save Folder</div>
+        <div class="path-row">
+          <input id="saveDir" name="saveDir" type="text" />
+          <button type="button" class="secondary" id="browse">Browse</button>
+        </div>
+      </section>
 
-          <div>
-            <span>Gateway Pairing</span>
-            <div id="pairing-unpaired-group" class="actions">
-              <button type="button" class="secondary" id="pair-gateway">Pair with D2 Wealth</button>
-            </div>
-            <div id="pairing-paired-group" class="hidden">
-              <p class="small">This gateway is already paired to your D2 Wealth account.</p>
-              <div class="actions">
-                <button type="button" class="secondary" id="reconnect-gateway">Reconnect Gateway</button>
-                <button type="button" class="secondary" id="disconnect-token">Disconnect Gateway</button>
-              </div>
-            </div>
+      <section class="shell section">
+        <div class="section-title">Account Link</div>
+        <div class="pair-panel">
+          <p id="pair-copy" class="pair-copy">Sign in with Discord and link this PC to your D2 Wealth account.</p>
+          <div class="action-row">
+            <button type="button" class="primary" id="pair-gateway">Sign In with Discord &amp; Pair</button>
+            <button type="button" class="danger hidden" id="disconnect-gateway">Disconnect</button>
           </div>
+        </div>
+      </section>
 
-          <label class="toggle-row">
+      <section class="shell section grow">
+        <div class="section-title">Status</div>
+        <div class="meta-grid" id="status-grid"></div>
+        <div class="footer-row" style="margin-top: 12px;">
+          <label class="checkbox-row">
             <input id="autoStart" name="autoStart" type="checkbox" />
-            <span>Start gateway automatically when Windows starts</span>
+            <span>Start automatically with Windows</span>
           </label>
-
-          <div class="actions">
-            <button type="submit">Save Settings</button>
-          </div>
-        </form>
-      </section>
-
-      <section class="panel">
-        <h2>Gateway Status</h2>
-        <div class="status-grid" id="status-grid"></div>
+          <button type="button" class="secondary" id="save-settings" style="margin-left: auto;">Save</button>
+        </div>
       </section>
     </main>
 
@@ -193,43 +275,41 @@
       const saveDir = document.getElementById("saveDir");
       const autoStart = document.getElementById("autoStart");
       const statusGrid = document.getElementById("status-grid");
-      const settingsForm = document.getElementById("settings-form");
-      const pairingUnpairedGroup = document.getElementById("pairing-unpaired-group");
-      const pairingPairedGroup = document.getElementById("pairing-paired-group");
+      const syncPill = document.getElementById("sync-pill");
+      const pairCopy = document.getElementById("pair-copy");
       const pairGateway = document.getElementById("pair-gateway");
-      const reconnectGateway = document.getElementById("reconnect-gateway");
-      const disconnectToken = document.getElementById("disconnect-token");
+      const disconnectGateway = document.getElementById("disconnect-gateway");
+      const saveSettings = document.getElementById("save-settings");
+
       let saveDirDirty = false;
       let autoStartDirty = false;
 
       const renderStatus = (status) => {
+        const syncConnected = Boolean(status.syncToken && status.lastBackendSyncAt && !status.lastBackendSyncError);
+        syncPill.textContent = syncConnected ? "Connected" : status.syncToken ? "Syncing" : "Idle";
+        syncPill.className = `state-pill ${syncConnected ? "connected" : "idle"}`;
+
+        pairGateway.textContent = status.syncToken ? "Reconnect Account" : "Sign In with Discord & Pair";
+        disconnectGateway.classList.toggle("hidden", !status.syncToken);
+        pairCopy.innerHTML = status.syncToken
+          ? "This PC is linked to your D2 Wealth account. Reconnect if you want to switch the linked Discord account or refresh the pairing."
+          : "Sign in with Discord and link this PC to your D2 Wealth account.";
+
         statusGrid.innerHTML = `
-          <article class="status-card">
-            <span class="small">Gateway</span>
-            <strong class="${status.running ? "ok" : ""}">${status.running ? "Running" : "Stopped"}</strong>
+          <article class="meta-card">
+            <span>Gateway</span>
+            <strong>${status.running ? "Running" : "Stopped"}</strong>
           </article>
-          <article class="status-card">
-            <span class="small">Sync</span>
-            <strong>${status.syncToken ? "Configured" : "Needs token"}</strong>
+          <article class="meta-card">
+            <span>Sync</span>
+            <strong>${syncConnected ? "Connected" : status.syncToken ? "Waiting" : "Not linked"}</strong>
           </article>
-          <article class="status-card">
-            <span class="small">Files Seen</span>
+          <article class="meta-card">
+            <span>Files Seen</span>
             <strong>${status.files.length}</strong>
           </article>
-          <article class="status-card">
-            <span class="small">Save Folder</span>
-            <strong>${status.saveDir}</strong>
-          </article>
-          <article class="status-card">
-            <span class="small">Startup</span>
-            <strong>${status.autoStart ? "Enabled" : "Disabled"}</strong>
-          </article>
-          <article class="status-card">
-            <span class="small">Client</span>
-            <strong>${status.clientId}</strong>
-          </article>
-          <article class="status-card">
-            <span class="small">Last Sync</span>
+          <article class="meta-card">
+            <span>Last Sync</span>
             <strong>${status.lastBackendSyncAt ?? status.lastBackendSyncError ?? "Never"}</strong>
           </article>
         `;
@@ -242,10 +322,6 @@
         if (!autoStartDirty && document.activeElement !== autoStart) {
           autoStart.checked = Boolean(status.autoStart);
         }
-
-        const hasToken = Boolean(status.syncToken);
-        pairingUnpairedGroup.classList.toggle("hidden", hasToken);
-        pairingPairedGroup.classList.toggle("hidden", !hasToken);
         renderStatus(status);
       };
 
@@ -257,24 +333,22 @@
         autoStartDirty = true;
       });
 
-      settingsForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const payload = {
-          saveDir: saveDir.value,
-          autoStart: autoStart.checked,
-        };
-        const next = await window.gatewayTray.saveSettings(payload);
-        saveDirDirty = false;
-        autoStartDirty = false;
-        applyStatus(next);
-      });
-
       document.getElementById("browse").addEventListener("click", async () => {
         const nextSaveDir = await window.gatewayTray.browseSaveDir();
         if (nextSaveDir) {
           saveDir.value = nextSaveDir;
           saveDirDirty = true;
         }
+      });
+
+      saveSettings.addEventListener("click", async () => {
+        const next = await window.gatewayTray.saveSettings({
+          saveDir: saveDir.value,
+          autoStart: autoStart.checked,
+        });
+        saveDirDirty = false;
+        autoStartDirty = false;
+        applyStatus(next);
       });
 
       pairGateway.addEventListener("click", async () => {
@@ -284,14 +358,7 @@
         applyStatus(next);
       });
 
-      reconnectGateway.addEventListener("click", async () => {
-        const next = await window.gatewayTray.pairGateway();
-        saveDirDirty = false;
-        autoStartDirty = false;
-        applyStatus(next);
-      });
-
-      disconnectToken.addEventListener("click", async () => {
+      disconnectGateway.addEventListener("click", async () => {
         const next = await window.gatewayTray.disconnectGateway();
         saveDirDirty = false;
         autoStartDirty = false;

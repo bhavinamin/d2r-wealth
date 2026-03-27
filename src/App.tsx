@@ -345,14 +345,11 @@ function GettingStarted(props: {
   onSignIn?: () => void;
   stepOneReady: boolean;
   stepTwoReady: boolean;
-  onOpenDashboard: () => void;
   pairingReady: boolean;
   pairingBusy: boolean;
   pairingId: string;
   onApprovePairing: () => void;
 }) {
-  const canOpenDashboard = props.stepOneReady && props.stepTwoReady;
-
   return (
     <section className="landing-shell">
       <section className="landing-hero">
@@ -426,18 +423,6 @@ function GettingStarted(props: {
             ) : null}
           </div>
         </article>
-        <article className={`landing-step ${canOpenDashboard ? "is-complete" : ""}`}>
-          <span className="landing-step-number">{canOpenDashboard ? "✓" : "3"}</span>
-          <div>
-            <h3>Open the dashboard</h3>
-            <p>Once Discord is connected and the local gateway is reachable, open the dashboard to view overview, wealth history, and the loot ledger.</p>
-            <div className="landing-step-actions">
-              <button type="button" className="dashboard-open-button" onClick={props.onOpenDashboard} disabled={!canOpenDashboard}>
-                Open Dashboard
-              </button>
-            </div>
-          </div>
-        </article>
       </section>
     </section>
   );
@@ -458,7 +443,6 @@ export default function App() {
   const [accounts, setAccounts] = useState<BackendAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState(backendConfig.accountId);
   const [gatewayReady, setGatewayReady] = useState(false);
-  const [dashboardUnlocked, setDashboardUnlocked] = useState(false);
   const [pairingId, setPairingId] = useState(derivePendingPairingId());
   const [pairingBusy, setPairingBusy] = useState(false);
   const [pairingReady, setPairingReady] = useState(false);
@@ -564,7 +548,6 @@ export default function App() {
     setReport(null);
     setHistory([]);
     setAuthRequired(true);
-    setDashboardUnlocked(false);
     setGatewayReady(false);
     setPairingReady(false);
   };
@@ -718,7 +701,6 @@ export default function App() {
     }
 
     setGatewayReady(true);
-    setDashboardUnlocked(true);
     setUser({ id: "preview-user", username: "Preview Account" });
     setAccounts([{ id: "preview-account", name: "Preview Account", role: "owner" }]);
     setSelectedAccountId("preview-account");
@@ -815,7 +797,7 @@ export default function App() {
 
   const stepOneReady = !!user && !authRequired;
   const stepTwoReady = stepOneReady && gatewayReady;
-  const showDashboard = previewDashboard ? !!report && dashboardUnlocked : backendMode && !!user && !!selectedAccountId && !authRequired && dashboardUnlocked;
+  const showDashboard = previewDashboard ? !!report : backendMode && !!user && !!selectedAccountId && !authRequired && gatewayReady;
 
   return (
     <main className={`app-shell ${showDashboard ? "" : "app-shell-landing"}`}>
@@ -877,7 +859,6 @@ export default function App() {
           onSignIn={signInWithDiscord}
           stepOneReady={stepOneReady}
           stepTwoReady={stepTwoReady}
-          onOpenDashboard={() => setDashboardUnlocked(true)}
           pairingReady={pairingReady}
           pairingBusy={pairingBusy}
           pairingId={pairingId}

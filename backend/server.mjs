@@ -385,11 +385,12 @@ const server = http.createServer(async (request, response) => {
       const payload = JSON.parse(await readBody(request));
       const clientId = String(payload.clientId ?? "gateway").trim() || "gateway";
       const created = createGatewayPairing({ clientId });
+      const pairReturnUrl = `${APP_REDIRECT_URI.replace(/\/+$/, "")}/?pair=${encodeURIComponent(created.id)}`;
       sendJson(request, response, 200, {
         pairingId: created.id,
         pairingSecret: created.pairingSecret,
         expiresAt: created.expiresAt,
-        pairingUrl: `${APP_REDIRECT_URI.replace(/\/+$/, "")}/?pair=${encodeURIComponent(created.id)}`,
+        pairingUrl: `${APP_REDIRECT_URI.replace(/\/+$/, "")}/auth/discord/start?returnTo=${encodeURIComponent(pairReturnUrl)}`,
       });
     } catch (error) {
       sendJson(request, response, 400, { error: error instanceof Error ? error.message : "Invalid pairing payload." });

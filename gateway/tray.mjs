@@ -299,8 +299,8 @@ const restartGatewayProcess = async () => {
 const showSettingsWindow = async () => {
   if (!settingsWindow) {
     settingsWindow = new BrowserWindow({
-      width: 560,
-      height: 720,
+      width: 460,
+      height: 520,
       title: "D2 Wealth Gateway",
       resizable: false,
       autoHideMenuBar: true,
