@@ -74,6 +74,9 @@ Backend env vars:
 - `DISCORD_CLIENT_SECRET`
 - `DISCORD_REDIRECT_URI` optional override
 - `D2_APP_REDIRECT_URI` optional dashboard return URL
+- `D2_BACKEND_DATA_DIR` optional SQLite data dir override
+- `D2_BACKEND_DB_PATH` optional direct SQLite path override
+- `D2_COOKIE_SECURE` set `true` when served over HTTPS
 
 CLI fallback:
 
@@ -113,3 +116,34 @@ The gateway is intended to point at a live D2R save directory such as:
 - `src/App.tsx` contains the auth-gated landing page, backend-driven dashboard behavior, and trade-tag UI rules
 - `src/App.tsx` separates the product into `Overview` and `Loot Ledger` views once the user is authenticated
 - `Loot Ledger` keeps character stash and carried inventory in separate panels
+
+## Deployment
+
+The repo now includes a deployment baseline for `https://d2r.bjav.io`:
+
+- GitHub Actions workflow: [deploy.yml](C:\Users\Bhavin\Documents\dev\d2-wealth\.github\workflows\deploy.yml)
+- server deploy script: [deploy.sh](C:\Users\Bhavin\Documents\dev\d2-wealth\deploy\deploy.sh)
+- nginx site: [d2r.bjav.io.conf](C:\Users\Bhavin\Documents\dev\d2-wealth\deploy\nginx\d2r.bjav.io.conf)
+- systemd unit: [d2-wealth-backend.service](C:\Users\Bhavin\Documents\dev\d2-wealth\deploy\systemd\d2-wealth-backend.service)
+- production env template: [d2-wealth.env.example](C:\Users\Bhavin\Documents\dev\d2-wealth\deploy\d2-wealth.env.example)
+
+Expected server layout:
+
+- app root: `/srv/d2-wealth`
+- current release: `/srv/d2-wealth/current`
+- shared SQLite data: `/srv/d2-wealth/shared/data`
+- backend env file: `/etc/d2-wealth/d2-wealth.env`
+
+GitHub secrets expected by the workflow:
+
+- `DEPLOY_HOST`
+- `DEPLOY_USER`
+- `DEPLOY_SSH_KEY`
+- `DEPLOY_PORT` optional
+
+Before the workflow can go live:
+
+- create a DNS record for `d2r.bjav.io`
+- put the repo on GitHub and add a remote
+- install the systemd unit and nginx site on the VPS
+- add Discord OAuth production credentials for `https://d2r.bjav.io/auth/discord/callback`

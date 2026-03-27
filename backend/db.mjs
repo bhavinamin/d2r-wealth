@@ -3,8 +3,12 @@ import path from "node:path";
 import crypto from "node:crypto";
 import Database from "better-sqlite3";
 
-const DATA_DIR = path.resolve(process.cwd(), "backend", "data");
-const DB_PATH = path.join(DATA_DIR, "d2-wealth.sqlite");
+const CONFIGURED_DATA_DIR = process.env.D2_BACKEND_DATA_DIR;
+const CONFIGURED_DB_PATH = process.env.D2_BACKEND_DB_PATH;
+const DATA_DIR = CONFIGURED_DB_PATH
+  ? path.dirname(path.resolve(CONFIGURED_DB_PATH))
+  : path.resolve(CONFIGURED_DATA_DIR ?? path.join(process.cwd(), "backend", "data"));
+const DB_PATH = path.resolve(CONFIGURED_DB_PATH ?? path.join(DATA_DIR, "d2-wealth.sqlite"));
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 

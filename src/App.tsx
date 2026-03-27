@@ -138,7 +138,11 @@ const deriveBackendConfig = () => {
   }
 
   const params = new URLSearchParams(window.location.search);
-  const backendUrl = params.get("backend") || window.localStorage.getItem(BACKEND_URL_KEY) || "";
+  const defaultBackendUrl =
+    window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+      ? "http://127.0.0.1:3197"
+      : window.location.origin;
+  const backendUrl = params.get("backend") || window.localStorage.getItem(BACKEND_URL_KEY) || defaultBackendUrl;
   const accountId = params.get("account") || window.localStorage.getItem(ACCOUNT_ID_KEY) || "";
   return { backendUrl, accountId };
 };
@@ -415,13 +419,12 @@ function GettingStarted(props: {
 export default function App() {
   const backendConfig = deriveBackendConfig();
   const previewDashboard = derivePreviewDashboard();
-  const effectiveBackendUrl = backendConfig.backendUrl || "http://127.0.0.1:3197";
+  const effectiveBackendUrl = backendConfig.backendUrl;
   const backendMode = true;
   const [report, setReport] = useState<WealthReport | null>(null);
   const [history, setHistory] = useState<WealthSnapshot[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState<"overview" | "loot">("overview");
-  const [gatewayUrl] = useState(deriveGatewayUrl);
   const [backendStatus, setBackendStatus] = useState<string>(backendMode ? "Connecting..." : "Idle");
   const [authRequired, setAuthRequired] = useState(false);
   const [user, setUser] = useState<BackendUser | null>(null);
@@ -431,7 +434,6 @@ export default function App() {
   const [dashboardUnlocked, setDashboardUnlocked] = useState(false);
   const autoConnectStartedRef = useRef(false);
   const backendPollTimerRef = useRef<number | null>(null);
-  const gatewayProbeTimerRef = useRef<number | null>(null);
   const reportRef = useRef<WealthReport | null>(null);
   const selectedAccountRef = useRef(selectedAccountId);
   const deferredHistory = useDeferredValue(history);
@@ -456,44 +458,8 @@ export default function App() {
       if (backendPollTimerRef.current) {
         window.clearTimeout(backendPollTimerRef.current);
       }
-      if (gatewayProbeTimerRef.current) {
-        window.clearTimeout(gatewayProbeTimerRef.current);
-      }
     };
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const pollGatewayHealth = async () => {
-      try {
-        const response = await fetch(`${gatewayUrl.replace(/\/+$/, "")}/health`);
-        if (!response.ok) {
-          throw new Error(`Gateway health failed with ${response.status}.`);
-        }
-        const payload = (await response.json()) as { syncToken?: string };
-        if (!cancelled) {
-          setGatewayReady(Boolean(payload.syncToken));
-        }
-      } catch {
-        if (!cancelled) {
-          setGatewayReady(false);
-        }
-      } finally {
-        if (!cancelled) {
-          gatewayProbeTimerRef.current = window.setTimeout(() => {
-            void pollGatewayHealth();
-          }, 10000);
-        }
-      }
-    };
-
-    void pollGatewayHealth();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [gatewayUrl]);
 
   const applyReport = (nextReport: WealthReport) => {
     const nextHistory = pushHistory(nextReport.snapshot);
@@ -508,9 +474,10 @@ export default function App() {
     window.localStorage.setItem(BACKEND_URL_KEY, normalizedBaseUrl);
     window.localStorage.setItem(ACCOUNT_ID_KEY, accountId);
 
-    const [latestResponse, historyResponse] = await Promise.all([
+    const [latestResponse, historyResponse, clientsResponse] = await Promise.all([
       fetch(`${normalizedBaseUrl}/api/accounts/${encodeURIComponent(accountId)}/latest`, { credentials: "include" }),
       fetch(`${normalizedBaseUrl}/api/accounts/${encodeURIComponent(accountId)}/history`, { credentials: "include" }),
+      fetch(`${normalizedBaseUrl}/api/accounts/${encodeURIComponent(accountId)}/clients`, { credentials: "include" }),
     ]);
 
     if (!latestResponse.ok) {
@@ -527,12 +494,21 @@ export default function App() {
       throw new Error(`Backend history request failed with ${historyResponse.status}.`);
     }
 
-    const latestPayload = (await latestResponse.json()) as { report: WealthReport };
+    if (!clientsResponse.ok) {
+      if (clientsResponse.status === 401 || clientsResponse.status === 403) {
+        throw new Error("AUTH_REQUIRED");
+      }
+      throw new Error(`Backend clients request failed with ${clientsResponse.status}.`);
+    }
+
+    const latestPayload = (await latestResponse.json()) as { report: WealthReport | null };
     const historyPayload = (await historyResponse.json()) as { history: WealthSnapshot[] };
+    const clientsPayload = (await clientsResponse.json()) as { clients: Array<{ clientId: string; receivedAt: string }> };
 
     startTransition(() => {
       setReport(latestPayload.report);
       setHistory(historyPayload.history ?? []);
+      setGatewayReady((clientsPayload.clients ?? []).length > 0);
     });
   };
 

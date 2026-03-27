@@ -25,6 +25,7 @@ const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET ?? "";
 const DISCORD_REDIRECT_URI = process.env.DISCORD_REDIRECT_URI ?? `http://${HOST}:${PORT}/auth/discord/callback`;
 const APP_REDIRECT_URI = process.env.D2_APP_REDIRECT_URI ?? "http://127.0.0.1:5173";
 const COOKIE_NAME = "d2w_session";
+const COOKIE_SECURE = process.env.D2_COOKIE_SECURE === "true" || APP_REDIRECT_URI.startsWith("https://");
 
 const portalHtml = `<!doctype html>
 <html lang="en">
@@ -162,9 +163,9 @@ const parseCookies = (request) =>
   );
 
 const sessionCookie = (sessionId) =>
-  `${COOKIE_NAME}=${encodeURIComponent(sessionId)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
+  `${COOKIE_NAME}=${encodeURIComponent(sessionId)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}${COOKIE_SECURE ? "; Secure" : ""}`;
 
-const clearSessionCookie = () => `${COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`;
+const clearSessionCookie = () => `${COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${COOKIE_SECURE ? "; Secure" : ""}`;
 
 const sessionForRequest = (request) => {
   const cookies = parseCookies(request);
@@ -434,11 +435,12 @@ const server = http.createServer(async (request, response) => {
 
     if (resource === "latest") {
       const latest = readAccountLatest(accountId);
-      if (!latest) {
-        sendJson(request, response, 404, { error: "Account not found." });
-        return;
-      }
-      sendJson(request, response, 200, latest);
+      sendJson(request, response, 200, {
+        accountId,
+        report: latest?.report ?? null,
+        clientId: latest?.clientId ?? null,
+        receivedAt: latest?.receivedAt ?? null,
+      });
       return;
     }
 

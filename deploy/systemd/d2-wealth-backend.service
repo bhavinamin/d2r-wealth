@@ -1,0 +1,16 @@
+[Unit]
+Description=D2 Wealth Backend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/d2-wealth/current
+EnvironmentFile=/etc/d2-wealth/d2-wealth.env
+ExecStart=/usr/bin/node /srv/d2-wealth/current/backend/server.mjs
+Restart=always
+RestartSec=5
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
