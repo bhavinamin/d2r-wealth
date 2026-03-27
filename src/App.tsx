@@ -24,13 +24,6 @@ type BackendAccount = {
   role: string;
 };
 
-type GatewayToken = {
-  id: string;
-  label: string;
-  token?: string;
-  tokenPrefix?: string;
-};
-
 const formatHr = (value: number) => `${value.toFixed(value >= 1 ? 2 : 3)} HR`;
 const formatTime = (value: string) =>
   new Intl.DateTimeFormat(undefined, {
@@ -57,8 +50,8 @@ const hrTickSize = smallestRuneValue;
 const EQUIPPED_DROP_GUARD_HR = 0.05;
 const BACKEND_URL_KEY = "d2-wealth-backend-url";
 const ACCOUNT_ID_KEY = "d2-wealth-account-id";
-const SYNC_TOKEN_KEY_PREFIX = "d2-wealth-sync-token";
 const GATEWAY_RELEASE_URL = "https://github.com/bhavinamin/d2r-wealth/releases/latest/download/D2-Wealth-Gateway-Setup.msi";
+const BACKEND_POLL_INTERVAL_MS = 3000;
 
 const classPortraits: Record<string, string> = {
   amazon: amazonPortrait,
@@ -163,6 +156,15 @@ const derivePreviewDashboard = () => {
 
   const params = new URLSearchParams(window.location.search);
   return params.get("preview") === "dashboard";
+};
+
+const derivePendingPairingId = () => {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return params.get("pair") || "";
 };
 
 const portraitForClass = (className: string) => classPortraits[className.toLowerCase()] ?? sorceressPortrait;
@@ -344,11 +346,10 @@ function GettingStarted(props: {
   stepOneReady: boolean;
   stepTwoReady: boolean;
   onOpenDashboard: () => void;
-  syncToken: string;
-  hasExistingToken: boolean;
-  tokenBusy: boolean;
-  onGenerateToken: () => void;
-  onCopyToken: () => void;
+  pairingReady: boolean;
+  pairingBusy: boolean;
+  pairingId: string;
+  onApprovePairing: () => void;
 }) {
   const canOpenDashboard = props.stepOneReady && props.stepTwoReady;
 
@@ -380,7 +381,7 @@ function GettingStarted(props: {
           <span className="landing-step-number">{props.stepOneReady ? "✓" : "1"}</span>
           <div>
             <h3>Sign in with Discord</h3>
-            <p>Sign in with Discord to access your D2 Wealth account and retrieve the sync token for your local gateway.</p>
+            <p>Sign in with Discord to access your D2 Wealth account and authorize your local gateway.</p>
             <div className="landing-step-actions">
               <button type="button" className="discord-button" onClick={props.onSignIn} disabled={props.stepOneReady}>
                 <svg className="discord-glyph" viewBox="0 0 127.14 96.36" aria-hidden="true">
@@ -392,45 +393,14 @@ function GettingStarted(props: {
                 <span>{props.stepOneReady ? "Discord Connected" : "Sign in with Discord"}</span>
               </button>
             </div>
-            {props.stepOneReady ? (
-              <div className="landing-step-help token-panel">
-                <strong>Gateway Sync Token</strong>
-                {props.syncToken ? (
-                  <>
-                    <code className="token-value">{props.syncToken}</code>
-                    <div className="landing-step-actions">
-                      <button type="button" className="token-button" onClick={props.onCopyToken}>
-                        Copy Token
-                      </button>
-                      <button type="button" className="token-button token-button-secondary" onClick={props.onGenerateToken} disabled={props.tokenBusy}>
-                        {props.tokenBusy ? "Generating..." : "Generate New Token"}
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="token-copy">
-                      {props.hasExistingToken
-                        ? "A token already exists for this account. Generate a replacement token if you need to paste one into a gateway."
-                        : "Generate a sync token now so the local gateway can publish this account."}
-                    </p>
-                    <div className="landing-step-actions">
-                      <button type="button" className="token-button" onClick={props.onGenerateToken} disabled={props.tokenBusy}>
-                        {props.tokenBusy ? "Generating..." : props.hasExistingToken ? "Generate Replacement Token" : "Generate Sync Token"}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ) : null}
           </div>
         </article>
         <article className={`landing-step ${props.stepTwoReady ? "is-complete" : ""}`}>
           <span className="landing-step-number">{props.stepTwoReady ? "✓" : "2"}</span>
           <div>
             <h3>Set up the local gateway</h3>
-            <p>Open the Windows tray app, point it at your D2R save folder, and paste the sync token from Step 1.</p>
-            <div className="landing-step-status">{props.stepTwoReady ? "Gateway is configured for backend sync." : "Waiting for a tokened local gateway."}</div>
+            <p>Open the Windows tray app, point it at your D2R save folder, then pair it to this Discord account.</p>
+            <div className="landing-step-status">{props.stepTwoReady ? "Gateway is paired and syncing." : "Waiting for a paired local gateway."}</div>
             {!props.stepTwoReady ? (
               <div className="landing-step-help">
                 <strong>What is the local gateway?</strong>
@@ -442,9 +412,16 @@ function GettingStarted(props: {
                     .
                   </li>
                   <li>Set the save folder to <code>Saved Games\Diablo II Resurrected</code>.</li>
-                  <li>Paste your sync token from Step 1.</li>
+                  <li>In the tray app, click <code>Pair with D2 Wealth</code>.</li>
                   <li>Leave the gateway running in the tray.</li>
                 </ul>
+                {props.stepOneReady && props.pairingId ? (
+                  <div className="landing-step-actions">
+                    <button type="button" className="token-button" onClick={props.onApprovePairing} disabled={props.pairingBusy || props.pairingReady}>
+                      {props.pairingBusy ? "Authorizing..." : props.pairingReady ? "Gateway Authorized" : "Approve Gateway Pairing"}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -482,14 +459,13 @@ export default function App() {
   const [selectedAccountId, setSelectedAccountId] = useState(backendConfig.accountId);
   const [gatewayReady, setGatewayReady] = useState(false);
   const [dashboardUnlocked, setDashboardUnlocked] = useState(false);
-  const [syncToken, setSyncToken] = useState("");
-  const [hasExistingToken, setHasExistingToken] = useState(false);
-  const [tokenBusy, setTokenBusy] = useState(false);
+  const [pairingId, setPairingId] = useState(derivePendingPairingId());
+  const [pairingBusy, setPairingBusy] = useState(false);
+  const [pairingReady, setPairingReady] = useState(false);
   const autoConnectStartedRef = useRef(false);
   const backendPollTimerRef = useRef<number | null>(null);
   const reportRef = useRef<WealthReport | null>(null);
   const selectedAccountRef = useRef(selectedAccountId);
-  const tokenLoadedForAccountRef = useRef("");
   const deferredHistory = useDeferredValue(history);
 
   useEffect(() => {
@@ -504,8 +480,6 @@ export default function App() {
     selectedAccountRef.current = selectedAccountId;
     if (selectedAccountId) {
       window.localStorage.setItem(ACCOUNT_ID_KEY, selectedAccountId);
-      setSyncToken(window.localStorage.getItem(syncTokenStorageKey(selectedAccountId)) || "");
-      setHasExistingToken(false);
     }
   }, [selectedAccountId]);
 
@@ -583,39 +557,32 @@ export default function App() {
     return (await response.json()) as { user: BackendUser; accounts: BackendAccount[] };
   };
 
-  const syncTokenStorageKey = (accountId: string) => `${SYNC_TOKEN_KEY_PREFIX}:${accountId}`;
-
-  const listGatewayTokens = async (baseUrl: string, accountId: string) => {
-    const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
-    const response = await fetch(`${normalizedBaseUrl}/api/accounts/${encodeURIComponent(accountId)}/gateway-tokens`, {
-      credentials: "include",
-    });
-    if (!response.ok) {
-      if (response.status === 401 || response.status === 403) {
-        throw new Error("AUTH_REQUIRED");
-      }
-      throw new Error(`Gateway token list failed with ${response.status}.`);
-    }
-
-    return (await response.json()) as { tokens: GatewayToken[] };
+  const resetSignedOutState = (accountId = selectedAccountRef.current) => {
+    setUser(null);
+    setAccounts([]);
+    setSelectedAccountId("");
+    setReport(null);
+    setHistory([]);
+    setAuthRequired(true);
+    setDashboardUnlocked(false);
+    setGatewayReady(false);
+    setPairingReady(false);
   };
 
-  const createGatewayToken = async (baseUrl: string, accountId: string) => {
+  const approveGatewayPairing = async (baseUrl: string, nextPairingId: string) => {
     const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
-    const response = await fetch(`${normalizedBaseUrl}/api/accounts/${encodeURIComponent(accountId)}/gateway-tokens`, {
+    const response = await fetch(`${normalizedBaseUrl}/api/gateway/pairing-sessions/${encodeURIComponent(nextPairingId)}/approve`, {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: "Primary Gateway" }),
     });
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
         throw new Error("AUTH_REQUIRED");
       }
-      throw new Error(`Gateway token create failed with ${response.status}.`);
+      throw new Error(`Gateway pairing approve failed with ${response.status}.`);
     }
 
-    return (await response.json()) as GatewayToken;
+    return response.json();
   };
 
   const isSuspiciousDrop = (previous: WealthReport | null, next: WealthReport) => {
@@ -717,43 +684,24 @@ export default function App() {
     window.location.href = `${effectiveBackendUrl.replace(/\/+$/, "")}/auth/discord/start?returnTo=${encodeURIComponent(window.location.href)}`;
   };
 
-  const ensureSyncToken = async (forceNew = false) => {
-    if (!user || !selectedAccountId) {
+  const completeGatewayPairing = async () => {
+    if (!user || !pairingId) {
       return;
     }
 
-    setTokenBusy(true);
+    setPairingBusy(true);
     try {
-      const cachedToken = window.localStorage.getItem(syncTokenStorageKey(selectedAccountId)) || "";
-      if (!forceNew) {
-        const existing = await listGatewayTokens(effectiveBackendUrl, selectedAccountId);
-        if (existing.tokens.length > 0) {
-          setHasExistingToken(true);
-          setSyncToken(cachedToken);
-          return;
-        }
-      }
-
-      const created = await createGatewayToken(effectiveBackendUrl, selectedAccountId);
-      const nextToken = created.token ?? "";
-      setHasExistingToken(true);
-      setSyncToken(nextToken);
-      if (nextToken) {
-        window.localStorage.setItem(syncTokenStorageKey(selectedAccountId), nextToken);
-      }
+      await approveGatewayPairing(effectiveBackendUrl, pairingId);
+      setPairingReady(true);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("pair");
+      window.history.replaceState({}, "", url.toString());
+      setPairingId("");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Failed to prepare a gateway token.");
+      setError(caught instanceof Error ? caught.message : "Failed to approve gateway pairing.");
     } finally {
-      setTokenBusy(false);
+      setPairingBusy(false);
     }
-  };
-
-  const copySyncToken = async () => {
-    if (!syncToken) {
-      return;
-    }
-
-    await navigator.clipboard.writeText(syncToken);
   };
 
   const logout = async () => {
@@ -761,15 +709,7 @@ export default function App() {
       method: "POST",
       credentials: "include",
     });
-    setUser(null);
-    setAccounts([]);
-    setSelectedAccountId("");
-    setReport(null);
-    setHistory([]);
-    setAuthRequired(true);
-    setDashboardUnlocked(false);
-    setSyncToken("");
-    setHasExistingToken(false);
+    resetSignedOutState(selectedAccountId);
   };
 
   useEffect(() => {
@@ -804,8 +744,8 @@ export default function App() {
           setAccounts(mePayload.accounts);
           setAuthRequired(false);
 
-          const nextAccountId = selectedAccountRef.current || mePayload.accounts[0]?.id || "";
-          if (!selectedAccountRef.current && nextAccountId) {
+          const nextAccountId = mePayload.accounts[0]?.id || "";
+          if (selectedAccountRef.current !== nextAccountId) {
             setSelectedAccountId(nextAccountId);
           }
 
@@ -822,11 +762,7 @@ export default function App() {
         } catch (caught) {
           if (caught instanceof Error && caught.message === "AUTH_REQUIRED") {
             setBackendStatus("Disconnected");
-            setAuthRequired(true);
-            setUser(null);
-            setAccounts([]);
-            setReport(null);
-            setHistory([]);
+            resetSignedOutState();
             setError(null);
           } else {
             setBackendStatus("Error");
@@ -835,7 +771,7 @@ export default function App() {
         } finally {
           backendPollTimerRef.current = window.setTimeout(() => {
             void pollBackend();
-          }, 10000);
+          }, BACKEND_POLL_INTERVAL_MS);
         }
       };
 
@@ -860,6 +796,13 @@ export default function App() {
       })
       .catch((caught) => {
         if (!cancelled) {
+          if (caught instanceof Error && caught.message === "AUTH_REQUIRED") {
+            setBackendStatus("Disconnected");
+            resetSignedOutState(selectedAccountId);
+            setError(null);
+            return;
+          }
+
           setBackendStatus("Error");
           setError(caught instanceof Error ? caught.message : "Backend account load failed.");
         }
@@ -870,20 +813,8 @@ export default function App() {
     };
   }, [backendMode, user, selectedAccountId, previewDashboard, effectiveBackendUrl]);
 
-  useEffect(() => {
-    if (!user || !selectedAccountId || previewDashboard) {
-      return;
-    }
-    if (tokenLoadedForAccountRef.current === selectedAccountId) {
-      return;
-    }
-
-    tokenLoadedForAccountRef.current = selectedAccountId;
-    void ensureSyncToken(false);
-  }, [user, selectedAccountId, previewDashboard]);
-
   const stepOneReady = !!user && !authRequired;
-  const stepTwoReady = gatewayReady;
+  const stepTwoReady = stepOneReady && gatewayReady;
   const showDashboard = previewDashboard ? !!report && dashboardUnlocked : backendMode && !!user && !!selectedAccountId && !authRequired && dashboardUnlocked;
 
   return (
@@ -908,13 +839,7 @@ export default function App() {
                   <span className="gateway-status status-connected">{user?.username}</span>
                 </div>
                 <div className="account-controls">
-                  <select value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>
-                    {accounts.map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name}
-                      </option>
-                    ))}
-                  </select>
+                  <span>{accounts[0]?.name ?? "Discord Account"}</span>
                   <button type="button" onClick={logout}>
                     Log Out
                   </button>
@@ -953,11 +878,10 @@ export default function App() {
           stepOneReady={stepOneReady}
           stepTwoReady={stepTwoReady}
           onOpenDashboard={() => setDashboardUnlocked(true)}
-          syncToken={syncToken}
-          hasExistingToken={hasExistingToken}
-          tokenBusy={tokenBusy}
-          onGenerateToken={() => void ensureSyncToken(true)}
-          onCopyToken={() => void copySyncToken()}
+          pairingReady={pairingReady}
+          pairingBusy={pairingBusy}
+          pairingId={pairingId}
+          onApprovePairing={() => void completeGatewayPairing()}
         />
       ) : null}
 

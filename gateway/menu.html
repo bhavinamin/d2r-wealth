@@ -61,7 +61,6 @@
     <main>
       <div class="status" id="status">Gateway</div>
       <button id="open-settings">Open Settings</button>
-      <button id="open-dashboard">Open Dashboard</button>
       <button id="quit" class="danger">Quit Gateway</button>
     </main>
 
@@ -74,10 +73,6 @@
 
       document.getElementById("open-settings").addEventListener("click", async () => {
         await window.trayMenu.openSettings();
-      });
-
-      document.getElementById("open-dashboard").addEventListener("click", async () => {
-        await window.trayMenu.openDashboard();
       });
 
       document.getElementById("quit").addEventListener("click", async () => {

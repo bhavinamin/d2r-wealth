@@ -2,9 +2,13 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { URL } from "node:url";
 import {
+  approveGatewayPairing,
+  claimGatewayPairing,
+  createGatewayPairing,
   createGatewayToken,
   createSession,
   deleteSession,
+  deleteSessionsForAccount,
   getSession,
   ingestAccountReport,
   listAccountsForUser,
@@ -12,6 +16,7 @@ import {
   readAccountClients,
   readAccountHistory,
   readAccountLatest,
+  removeGatewayClient,
   revokeGatewayToken,
   upsertDiscordUser,
   userCanAccessAccount,
@@ -49,7 +54,7 @@ const portalHtml = `<!doctype html>
     <main>
       <section id="auth">
         <h1>D2 Wealth Portal</h1>
-        <p>Sign in with Discord to manage your account and gateway sync tokens.</p>
+        <p>Sign in with Discord to manage your account and pair your local gateway.</p>
         <button class="primary" id="login">Sign in with Discord</button>
       </section>
       <section id="app" class="hidden">
@@ -58,10 +63,10 @@ const portalHtml = `<!doctype html>
           <label>Account
             <select id="account"></select>
           </label>
-          <label>New Gateway Token Label
-            <input id="tokenLabel" value="Primary Gateway" />
+          <label>Gateway Pairing
+            <input id="tokenLabel" value="Pair from the Windows tray app" readonly />
           </label>
-          <button class="primary" id="createToken">Create Gateway Token</button>
+          <button class="primary" id="createToken" disabled>Use the tray app to pair</button>
         </div>
         <div id="newToken" class="token hidden"></div>
         <h2>Existing Tokens</h2>
@@ -106,8 +111,7 @@ const portalHtml = `<!doctype html>
         });
         const payload = await response.json();
         newToken.classList.remove('hidden');
-        newToken.textContent = 'Copy this token into the gateway app now: ' + payload.token;
-        await loadTokens();
+        newToken.textContent = 'Gateway pairing now starts from the Windows tray app.';
       };
       render();
     </script>
@@ -372,6 +376,107 @@ const server = http.createServer(async (request, response) => {
       sendJson(request, response, 200, { ok: true, latest });
     } catch (error) {
       sendJson(request, response, 400, { error: error instanceof Error ? error.message : "Invalid ingest payload." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/gateway/pairing-sessions" && request.method === "POST") {
+    try {
+      const payload = JSON.parse(await readBody(request));
+      const clientId = String(payload.clientId ?? "gateway").trim() || "gateway";
+      const created = createGatewayPairing({ clientId });
+      sendJson(request, response, 200, {
+        pairingId: created.id,
+        pairingSecret: created.pairingSecret,
+        expiresAt: created.expiresAt,
+        pairingUrl: `${APP_REDIRECT_URI.replace(/\/+$/, "")}/?pair=${encodeURIComponent(created.id)}`,
+      });
+    } catch (error) {
+      sendJson(request, response, 400, { error: error instanceof Error ? error.message : "Invalid pairing payload." });
+    }
+    return;
+  }
+
+  const pairingClaimMatch = url.pathname.match(/^\/api\/gateway\/pairing-sessions\/([^/]+)\/claim$/);
+  if (pairingClaimMatch && request.method === "POST") {
+    try {
+      const payload = JSON.parse(await readBody(request));
+      const result = claimGatewayPairing({
+        pairingId: decodeURIComponent(pairingClaimMatch[1]),
+        pairingSecret: String(payload.pairingSecret ?? ""),
+      });
+
+      if (result.status === "approved") {
+        sendJson(request, response, 200, result);
+        return;
+      }
+
+      if (result.status === "pending") {
+        sendJson(request, response, 202, result);
+        return;
+      }
+
+      if (result.status === "forbidden") {
+        sendJson(request, response, 403, result);
+        return;
+      }
+
+      sendJson(request, response, 410, result);
+    } catch (error) {
+      sendJson(request, response, 400, { error: error instanceof Error ? error.message : "Invalid pairing claim payload." });
+    }
+    return;
+  }
+
+  const pairingApproveMatch = url.pathname.match(/^\/api\/gateway\/pairing-sessions\/([^/]+)\/approve$/);
+  if (pairingApproveMatch && request.method === "POST") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    const result = approveGatewayPairing({
+      pairingId: decodeURIComponent(pairingApproveMatch[1]),
+      userId: session.user_id,
+    });
+
+    if (result.error === "PAIRING_NOT_FOUND") {
+      sendJson(request, response, 404, { error: "Pairing request not found." });
+      return;
+    }
+    if (result.error === "PAIRING_EXPIRED") {
+      sendJson(request, response, 410, { error: "Pairing request expired." });
+      return;
+    }
+    if (result.error === "PAIRING_CONSUMED") {
+      sendJson(request, response, 409, { error: "Pairing request already used." });
+      return;
+    }
+    if (result.error === "ACCOUNT_NOT_FOUND") {
+      sendJson(request, response, 404, { error: "No account found for this Discord user." });
+      return;
+    }
+
+    sendJson(request, response, 200, result);
+    return;
+  }
+
+  if (url.pathname === "/api/gateway/disconnect" && request.method === "POST") {
+    const tokenRow = validateGatewayToken(bearerToken(request));
+    if (!tokenRow) {
+      sendJson(request, response, 401, { error: "Valid gateway token required." });
+      return;
+    }
+
+    try {
+      const payload = JSON.parse(await readBody(request));
+      const clientId = String(payload.clientId ?? "gateway");
+      revokeGatewayToken(tokenRow.id, tokenRow.account_id);
+      removeGatewayClient(tokenRow.account_id, clientId);
+      deleteSessionsForAccount(tokenRow.account_id);
+      sendJson(request, response, 200, { ok: true });
+    } catch (error) {
+      sendJson(request, response, 400, { error: error instanceof Error ? error.message : "Invalid disconnect payload." });
     }
     return;
   }

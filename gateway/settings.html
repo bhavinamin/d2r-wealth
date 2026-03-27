@@ -90,6 +90,10 @@
         flex-wrap: wrap;
       }
 
+      .hidden {
+        display: none !important;
+      }
+
       button {
         border: 0;
         border-radius: 12px;
@@ -106,20 +110,8 @@
         background: rgba(255, 255, 255, 0.08);
       }
 
-      textarea,
       .status-grid {
         display: grid;
-      }
-
-      textarea {
-        min-height: 86px;
-        resize: vertical;
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(255, 255, 255, 0.05);
-        color: inherit;
-        padding: 10px 12px;
-        font: inherit;
       }
 
       .status-grid {
@@ -166,10 +158,19 @@
             </div>
           </label>
 
-          <label>
-            Sync Token
-            <textarea id="syncToken" name="syncToken" placeholder="Paste the token from the account portal"></textarea>
-          </label>
+          <div>
+            <span>Gateway Pairing</span>
+            <div id="pairing-unpaired-group" class="actions">
+              <button type="button" class="secondary" id="pair-gateway">Pair with D2 Wealth</button>
+            </div>
+            <div id="pairing-paired-group" class="hidden">
+              <p class="small">This gateway is already paired to your D2 Wealth account.</p>
+              <div class="actions">
+                <button type="button" class="secondary" id="reconnect-gateway">Reconnect Gateway</button>
+                <button type="button" class="secondary" id="disconnect-token">Disconnect Gateway</button>
+              </div>
+            </div>
+          </div>
 
           <label class="toggle-row">
             <input id="autoStart" name="autoStart" type="checkbox" />
@@ -178,8 +179,6 @@
 
           <div class="actions">
             <button type="submit">Save Settings</button>
-            <button type="button" class="secondary" id="open-dashboard">Open Dashboard</button>
-            <button type="button" class="secondary" id="open-portal">Open Account Portal</button>
           </div>
         </form>
       </section>
@@ -192,12 +191,15 @@
 
     <script>
       const saveDir = document.getElementById("saveDir");
-      const syncToken = document.getElementById("syncToken");
       const autoStart = document.getElementById("autoStart");
       const statusGrid = document.getElementById("status-grid");
       const settingsForm = document.getElementById("settings-form");
+      const pairingUnpairedGroup = document.getElementById("pairing-unpaired-group");
+      const pairingPairedGroup = document.getElementById("pairing-paired-group");
+      const pairGateway = document.getElementById("pair-gateway");
+      const reconnectGateway = document.getElementById("reconnect-gateway");
+      const disconnectToken = document.getElementById("disconnect-token");
       let saveDirDirty = false;
-      let syncTokenDirty = false;
       let autoStartDirty = false;
 
       const renderStatus = (status) => {
@@ -237,21 +239,18 @@
         if (!saveDirDirty && document.activeElement !== saveDir) {
           saveDir.value = status.saveDir ?? "";
         }
-        if (!syncTokenDirty && document.activeElement !== syncToken) {
-          syncToken.value = status.syncToken ?? "";
-        }
         if (!autoStartDirty && document.activeElement !== autoStart) {
           autoStart.checked = Boolean(status.autoStart);
         }
+
+        const hasToken = Boolean(status.syncToken);
+        pairingUnpairedGroup.classList.toggle("hidden", hasToken);
+        pairingPairedGroup.classList.toggle("hidden", !hasToken);
         renderStatus(status);
       };
 
       saveDir.addEventListener("input", () => {
         saveDirDirty = true;
-      });
-
-      syncToken.addEventListener("input", () => {
-        syncTokenDirty = true;
       });
 
       autoStart.addEventListener("change", () => {
@@ -260,13 +259,12 @@
 
       settingsForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        const next = await window.gatewayTray.saveSettings({
+        const payload = {
           saveDir: saveDir.value,
-          syncToken: syncToken.value,
           autoStart: autoStart.checked,
-        });
+        };
+        const next = await window.gatewayTray.saveSettings(payload);
         saveDirDirty = false;
-        syncTokenDirty = false;
         autoStartDirty = false;
         applyStatus(next);
       });
@@ -279,12 +277,25 @@
         }
       });
 
-      document.getElementById("open-dashboard").addEventListener("click", async () => {
-        await window.gatewayTray.openDashboard();
+      pairGateway.addEventListener("click", async () => {
+        const next = await window.gatewayTray.pairGateway();
+        saveDirDirty = false;
+        autoStartDirty = false;
+        applyStatus(next);
       });
 
-      document.getElementById("open-portal").addEventListener("click", async () => {
-        await window.gatewayTray.openBackendPortal();
+      reconnectGateway.addEventListener("click", async () => {
+        const next = await window.gatewayTray.pairGateway();
+        saveDirDirty = false;
+        autoStartDirty = false;
+        applyStatus(next);
+      });
+
+      disconnectToken.addEventListener("click", async () => {
+        const next = await window.gatewayTray.disconnectGateway();
+        saveDirDirty = false;
+        autoStartDirty = false;
+        applyStatus(next);
       });
 
       window.gatewayTray.onStatus((status) => {

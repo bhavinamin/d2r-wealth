@@ -14,6 +14,8 @@ let gatewayProcess = null;
 let eventRequest = null;
 let isQuitting = false;
 let connectedViewers = 0;
+let backendConnected = false;
+let previousBackendConnected = null;
 
 const trayEntryArg = path.join(__dirname, "tray.mjs");
 const gatewayServerEntry = path.join(__dirname, "server.mjs");
@@ -25,24 +27,15 @@ const settingsHtml = path.join(__dirname, "settings.html");
 const preloadScript = path.join(__dirname, "preload.cjs");
 const menuHtml = path.join(__dirname, "menu.html");
 const menuPreloadScript = path.join(__dirname, "menu-preload.cjs");
+const settingsFilePath = () => path.join(app.getPath("userData"), "settings.json");
 
 const trayImage = (connected) => nativeImage.createFromPath(connected ? trayIconPaths.connected : trayIconPaths.disconnected).resize({ width: 16, height: 16 });
-const currentSettings = () => readGatewaySettings();
+const currentSettings = () => readGatewaySettings(settingsFilePath());
 const gatewayEndpoint = () => {
   const settings = currentSettings();
   return `http://${settings.host}:${settings.port}`;
 };
-const dashboardLaunchUrl = () => {
-  const settings = currentSettings();
-  const url = new URL(settings.dashboardUrl);
-  if (settings.backendUrl) {
-    url.searchParams.set("backend", settings.backendUrl);
-  }
-  return url.toString();
-};
-const backendPortalUrl = () => `${currentSettings().backendUrl.replace(/\/+$/, "")}/portal`;
-
-const notify = (title, body, connected = connectedViewers > 0) => {
+const notify = (title, body, connected = backendConnected) => {
   if (!Notification.isSupported()) {
     return;
   }
@@ -60,7 +53,86 @@ const applyAutoStart = (enabled) => {
 const readAutoStart = () => app.getLoginItemSettings().openAtLogin;
 
 const updateTrayIcon = () => {
-  tray?.setImage(trayImage(connectedViewers > 0));
+  tray?.setImage(trayImage(backendConnected));
+};
+
+const postJson = async (url, body, headers = {}) =>
+  fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+
+const disconnectGatewaySync = async (settings, tokenOverride = settings.syncToken) => {
+  const backendUrl = String(settings.backendUrl ?? "").trim().replace(/\/+$/, "");
+  const syncToken = String(tokenOverride ?? "").trim();
+  if (!backendUrl || !syncToken) {
+    return;
+  }
+
+  try {
+    await fetch(`${backendUrl}/api/gateway/disconnect`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${syncToken}`,
+      },
+      body: JSON.stringify({
+        clientId: settings.clientId,
+      }),
+    });
+  } catch {
+  }
+};
+
+const pairGatewaySync = async () => {
+  const settings = currentSettings();
+  const backendUrl = String(settings.backendUrl ?? "").trim().replace(/\/+$/, "");
+  if (!backendUrl) {
+    throw new Error("Gateway backend URL is not configured.");
+  }
+
+  if (settings.syncToken) {
+    await disconnectGatewaySync(settings);
+  }
+
+  const pairingResponse = await postJson(`${backendUrl}/api/gateway/pairing-sessions`, {
+    clientId: settings.clientId,
+  });
+  if (!pairingResponse.ok) {
+    throw new Error(`Gateway pairing start failed with ${pairingResponse.status}`);
+  }
+
+  const pairing = await pairingResponse.json();
+  await shell.openExternal(pairing.pairingUrl);
+
+  const deadline = Date.now() + 10 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const claimResponse = await postJson(`${backendUrl}/api/gateway/pairing-sessions/${encodeURIComponent(pairing.pairingId)}/claim`, {
+      pairingSecret: pairing.pairingSecret,
+    });
+
+    if (claimResponse.status === 202) {
+      continue;
+    }
+
+    if (!claimResponse.ok) {
+      throw new Error(`Gateway pairing claim failed with ${claimResponse.status}`);
+    }
+
+    const claim = await claimResponse.json();
+    const saved = writeGatewaySettings({ ...settings, syncToken: claim.gatewayToken }, settingsFilePath());
+    applyAutoStart(saved.autoStart);
+    await restartGatewayProcess();
+    await broadcastStatus();
+    return;
+  }
+
+  throw new Error("Gateway pairing timed out.");
 };
 
 const fetchGatewayStatus = async () => {
@@ -88,6 +160,19 @@ const broadcastStatus = async () => {
   } catch {
     status.autoStart = readAutoStart();
   }
+
+  const nextBackendConnected = Boolean(status.syncToken && status.lastBackendSyncAt && !status.lastBackendSyncError);
+  if (previousBackendConnected === null) {
+    previousBackendConnected = nextBackendConnected;
+  } else if (previousBackendConnected !== nextBackendConnected) {
+    if (nextBackendConnected) {
+      notify("D2 Wealth Gateway", "Gateway connected to D2 Wealth sync.", true);
+    } else if (status.syncToken) {
+      notify("D2 Wealth Gateway", "Gateway lost connection to D2 Wealth sync.", false);
+    }
+    previousBackendConnected = nextBackendConnected;
+  }
+  backendConnected = nextBackendConnected;
 
   updateTrayIcon();
   tray?.setToolTip(`D2 Wealth Gateway\n${settings.host}:${settings.port}`);
@@ -136,12 +221,8 @@ const startGatewayEvents = () => {
           const data = JSON.parse(dataMatch[1]);
           if (eventName === "viewer-connected") {
             connectedViewers += 1;
-            updateTrayIcon();
-            notify("D2 Wealth Gateway", `Dashboard connected from ${data.remoteAddress}`, true);
           } else if (eventName === "viewer-disconnected") {
             connectedViewers = Math.max(0, connectedViewers - 1);
-            updateTrayIcon();
-            notify("D2 Wealth Gateway", `Dashboard disconnected from ${data.remoteAddress}`, false);
           } else if (eventName === "settings-changed" || eventName === "backend-sync" || eventName === "files-changed" || eventName === "ready") {
             void broadcastStatus();
           }
@@ -149,7 +230,6 @@ const startGatewayEvents = () => {
       });
       response.on("close", () => {
         connectedViewers = 0;
-        updateTrayIcon();
         setTimeout(startGatewayEvents, 3000);
       });
     },
@@ -157,7 +237,6 @@ const startGatewayEvents = () => {
 
   request.on("error", () => {
     connectedViewers = 0;
-    updateTrayIcon();
     setTimeout(startGatewayEvents, 3000);
   });
   request.end();
@@ -183,6 +262,8 @@ const startGatewayProcess = () => {
   gatewayProcess.on("exit", () => {
     gatewayProcess = null;
     connectedViewers = 0;
+    backendConnected = false;
+    previousBackendConnected = false;
     updateTrayIcon();
     if (!isQuitting) {
       setTimeout(() => {
@@ -321,7 +402,17 @@ app.whenReady().then(async () => {
     return result.canceled || !result.filePaths[0] ? null : result.filePaths[0];
   });
   ipcMain.handle("gateway:save-settings", async (_event, nextSettings) => {
-    const saved = writeGatewaySettings({ ...currentSettings(), ...nextSettings });
+    const previous = currentSettings();
+    const merged = { ...previous, ...nextSettings };
+    const nextToken = typeof nextSettings.syncToken === "string" ? nextSettings.syncToken.trim() : previous.syncToken;
+    const tokenChanged = previous.syncToken && previous.syncToken !== nextToken;
+    const tokenCleared = previous.syncToken && !nextToken;
+
+    if (tokenChanged || tokenCleared) {
+      await disconnectGatewaySync(previous, previous.syncToken);
+    }
+
+    const saved = writeGatewaySettings(merged, settingsFilePath());
     applyAutoStart(saved.autoStart);
     await restartGatewayProcess();
     return {
@@ -329,11 +420,25 @@ app.whenReady().then(async () => {
       autoStart: readAutoStart(),
     };
   });
-  ipcMain.handle("gateway:open-dashboard", async () => {
-    await shell.openExternal(dashboardLaunchUrl());
+  ipcMain.handle("gateway:pair", async () => {
+    await pairGatewaySync();
+    return {
+      ...(await fetchGatewayStatus().catch(() => ({ ...currentSettings(), running: false, files: [] }))),
+      autoStart: readAutoStart(),
+    };
   });
-  ipcMain.handle("gateway:open-backend-portal", async () => {
-    await shell.openExternal(backendPortalUrl());
+  ipcMain.handle("gateway:disconnect", async () => {
+    const previous = currentSettings();
+    if (previous.syncToken) {
+      await disconnectGatewaySync(previous);
+    }
+    const saved = writeGatewaySettings({ ...previous, syncToken: "" }, settingsFilePath());
+    applyAutoStart(saved.autoStart);
+    await restartGatewayProcess();
+    return {
+      ...(await fetchGatewayStatus().catch(() => ({ ...saved, running: false, files: [] }))),
+      autoStart: readAutoStart(),
+    };
   });
   ipcMain.handle("tray-menu:status", async () => {
     await broadcastStatus();
@@ -346,13 +451,10 @@ app.whenReady().then(async () => {
     menuWindow?.hide();
     await showSettingsWindow();
   });
-  ipcMain.handle("tray-menu:open-dashboard", async () => {
-    menuWindow?.hide();
-    await shell.openExternal(dashboardLaunchUrl());
-  });
   ipcMain.handle("tray-menu:quit", async () => {
     isQuitting = true;
     menuWindow?.hide();
+    await disconnectGatewaySync(currentSettings());
     await stopGatewayProcess();
     app.quit();
   });
@@ -369,6 +471,7 @@ app.on("before-quit", async (event) => {
 
   event.preventDefault();
   isQuitting = true;
+  await disconnectGatewaySync(currentSettings());
   await stopGatewayProcess();
   app.exit(0);
 });

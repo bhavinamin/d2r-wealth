@@ -76,6 +76,22 @@ CREATE TABLE IF NOT EXISTS gateway_tokens (
   FOREIGN KEY (created_by_user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS gateway_pairings (
+  id TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL,
+  pairing_secret_hash TEXT NOT NULL UNIQUE,
+  pairing_secret_prefix TEXT NOT NULL,
+  requested_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  approved_at TEXT,
+  consumed_at TEXT,
+  account_id TEXT,
+  gateway_token_id TEXT,
+  gateway_token_value TEXT,
+  FOREIGN KEY (account_id) REFERENCES accounts(id),
+  FOREIGN KEY (gateway_token_id) REFERENCES gateway_tokens(id)
+);
+
 CREATE TABLE IF NOT EXISTS account_latest (
   account_id TEXT PRIMARY KEY,
   client_id TEXT NOT NULL,
@@ -260,6 +276,113 @@ export const createGatewayToken = ({ accountId, label, createdByUserId }) => {
   };
 };
 
+export const createGatewayPairing = ({ clientId, expiresInMinutes = 10 }) => {
+  const rawSecret = `pair_${crypto.randomBytes(24).toString("hex")}`;
+  const id = randomId("pair");
+  const requestedAt = nowIso();
+  const expiresAt = new Date(Date.now() + expiresInMinutes * 60 * 1000).toISOString();
+  db.prepare(
+    `INSERT INTO gateway_pairings (
+      id, client_id, pairing_secret_hash, pairing_secret_prefix, requested_at, expires_at
+    ) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(id, clientId, tokenHash(rawSecret), rawSecret.slice(0, 12), requestedAt, expiresAt);
+  return {
+    id,
+    clientId,
+    pairingSecret: rawSecret,
+    pairingSecretPrefix: rawSecret.slice(0, 12),
+    requestedAt,
+    expiresAt,
+  };
+};
+
+export const approveGatewayPairing = ({ pairingId, userId }) => {
+  const pairing = db
+    .prepare(
+      `SELECT id, client_id, requested_at, expires_at, approved_at, consumed_at
+       FROM gateway_pairings
+       WHERE id = ?`,
+    )
+    .get(pairingId);
+
+  if (!pairing) {
+    return { error: "PAIRING_NOT_FOUND" };
+  }
+
+  if (pairing.consumed_at) {
+    return { error: "PAIRING_CONSUMED" };
+  }
+
+  if (new Date(pairing.expires_at).getTime() < Date.now()) {
+    return { error: "PAIRING_EXPIRED" };
+  }
+
+  const account = listAccountsForUser(userId)[0];
+  if (!account) {
+    return { error: "ACCOUNT_NOT_FOUND" };
+  }
+
+  if (pairing.approved_at) {
+    return { ok: true, accountId: account.id };
+  }
+
+  const created = createGatewayToken({
+    accountId: account.id,
+    label: `Paired Gateway (${pairing.client_id})`,
+    createdByUserId: userId,
+  });
+
+  db.prepare(
+    `UPDATE gateway_pairings
+     SET approved_at = ?, account_id = ?, gateway_token_id = ?, gateway_token_value = ?
+     WHERE id = ?`,
+  ).run(nowIso(), account.id, created.id, created.token, pairingId);
+
+  return {
+    ok: true,
+    accountId: account.id,
+    clientId: pairing.client_id,
+  };
+};
+
+export const claimGatewayPairing = ({ pairingId, pairingSecret }) => {
+  const pairing = db
+    .prepare(
+      `SELECT id, client_id, pairing_secret_hash, expires_at, approved_at, consumed_at, gateway_token_id, gateway_token_value
+       FROM gateway_pairings
+       WHERE id = ?`,
+    )
+    .get(pairingId);
+
+  if (!pairing) {
+    return { status: "missing" };
+  }
+
+  if (pairing.pairing_secret_hash !== tokenHash(pairingSecret)) {
+    return { status: "forbidden" };
+  }
+
+  if (pairing.consumed_at) {
+    return { status: "consumed" };
+  }
+
+  if (new Date(pairing.expires_at).getTime() < Date.now()) {
+    return { status: "expired" };
+  }
+
+  if (!pairing.approved_at || !pairing.gateway_token_value || !pairing.gateway_token_id) {
+    return { status: "pending" };
+  }
+
+  db.prepare("UPDATE gateway_pairings SET consumed_at = ?, gateway_token_value = NULL WHERE id = ?").run(nowIso(), pairingId);
+  return {
+    status: "approved",
+    clientId: pairing.client_id,
+    gatewayToken: pairing.gateway_token_value,
+    gatewayTokenId: pairing.gateway_token_id,
+  };
+};
+
 export const listGatewayTokens = (accountId) =>
   db
     .prepare(
@@ -272,6 +395,19 @@ export const listGatewayTokens = (accountId) =>
 
 export const revokeGatewayToken = (tokenId, accountId) => {
   db.prepare("UPDATE gateway_tokens SET revoked_at = ? WHERE id = ? AND account_id = ?").run(nowIso(), tokenId, accountId);
+};
+
+export const removeGatewayClient = (accountId, clientId) => {
+  db.prepare("DELETE FROM gateway_clients WHERE account_id = ? AND client_id = ?").run(accountId, clientId);
+};
+
+export const deleteSessionsForAccount = (accountId) => {
+  db.prepare(
+    `DELETE FROM sessions
+     WHERE user_id IN (
+       SELECT user_id FROM account_memberships WHERE account_id = ?
+     )`,
+  ).run(accountId);
 };
 
 export const validateGatewayToken = (rawToken) => {
