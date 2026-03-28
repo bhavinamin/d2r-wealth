@@ -200,6 +200,25 @@ const waitForGatewayLinked = async ({ timeoutMs = 20000, intervalMs = 1000 } = {
   return lastStatus;
 };
 
+const waitForGatewayStatus = async (predicate, { timeoutMs = 20000, intervalMs = 1000 } = {}) => {
+  const deadline = Date.now() + timeoutMs;
+  let lastStatus = null;
+
+  while (Date.now() < deadline) {
+    try {
+      lastStatus = await fetchGatewayStatus();
+      if (predicate(lastStatus)) {
+        return lastStatus;
+      }
+    } catch {
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  return lastStatus;
+};
+
 const broadcastStatus = async () => {
   const settings = currentSettings();
   let status = {
@@ -506,8 +525,17 @@ app.whenReady().then(async () => {
     const saved = writeGatewaySettings(merged, settingsFilePath());
     applyAutoStart(saved.autoStart);
     await restartGatewayProcess();
+    const validatedStatus =
+      (await waitForGatewayStatus(
+        (status) =>
+          status.saveDir === saved.saveDir &&
+          Boolean(status.saveValidation?.checkedAt) &&
+          (!saved.syncToken || Boolean(status.lastBackendSyncAt || status.lastBackendSyncError)),
+        { timeoutMs: 25000 },
+      ).catch(() => null)) ??
+      (await fetchGatewayStatus().catch(() => ({ ...saved, running: false, files: [] })));
     return {
-      ...(await fetchGatewayStatus().catch(() => ({ ...saved, running: false, files: [] }))),
+      ...validatedStatus,
       autoStart: readAutoStart(),
     };
   });

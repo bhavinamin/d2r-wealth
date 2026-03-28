@@ -201,6 +201,20 @@
         color: #f3ede1;
       }
 
+      .save-status {
+        margin-top: 8px;
+        font-size: 0.8rem;
+        color: rgba(243, 237, 225, 0.72);
+      }
+
+      .save-status.valid {
+        color: #89df9d;
+      }
+
+      .save-status.invalid {
+        color: #ffb0a7;
+      }
+
       .meta-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -268,6 +282,7 @@
           <input id="saveDir" name="saveDir" type="text" />
           <button type="button" class="secondary" id="browse">Browse</button>
         </div>
+        <p id="save-status" class="save-status">Choose the folder that contains your active Diablo II save files.</p>
       </section>
 
       <section class="shell section">
@@ -311,6 +326,7 @@
       const autoStart = document.getElementById("autoStart");
       const statusGrid = document.getElementById("status-grid");
       const syncPill = document.getElementById("sync-pill");
+      const saveStatus = document.getElementById("save-status");
       const pairCopy = document.getElementById("pair-copy");
       const pairGateway = document.getElementById("pair-gateway");
       const linkedPanel = document.getElementById("linked-panel");
@@ -323,8 +339,12 @@
       const renderStatus = (status) => {
         const linked = Boolean(status.syncToken);
         const syncConnected = Boolean(status.syncToken && status.lastBackendSyncAt && !status.lastBackendSyncError);
+        const saveValidation = status.saveValidation ?? { valid: false, message: "Choose a save folder." };
         syncPill.textContent = syncConnected ? "Connected" : linked ? "Linked" : "Idle";
         syncPill.className = `state-pill ${linked ? "connected" : "idle"}`;
+
+        saveStatus.textContent = saveValidation.message ?? "Choose a save folder.";
+        saveStatus.className = `save-status ${saveValidation.valid ? "valid" : "invalid"}`;
 
         pairGateway.classList.toggle("hidden", linked);
         linkedPanel.classList.toggle("hidden", !linked);

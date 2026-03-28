@@ -1,7 +1,8 @@
 import { GatewayService } from "./service.mjs";
-import { readGatewaySettings, writeGatewaySettings } from "./settings.mjs";
+import { DEFAULT_SETTINGS_PATH, readGatewaySettings, writeGatewaySettings } from "./settings.mjs";
 
-const baseSettings = readGatewaySettings();
+const settingsPath = process.env.D2_GATEWAY_SETTINGS_PATH ?? DEFAULT_SETTINGS_PATH;
+const baseSettings = readGatewaySettings(settingsPath);
 const cliSettings = {
   ...baseSettings,
   host: process.env.D2_GATEWAY_HOST ?? baseSettings.host,
@@ -9,8 +10,8 @@ const cliSettings = {
   saveDir: process.env.D2_SAVE_DIR ?? process.argv[2] ?? baseSettings.saveDir,
 };
 
-const persisted = writeGatewaySettings(cliSettings);
-const service = new GatewayService({ settings: persisted });
+const persisted = writeGatewaySettings(cliSettings, settingsPath);
+const service = new GatewayService({ settingsPath, settings: persisted });
 
 try {
   const status = await service.start();

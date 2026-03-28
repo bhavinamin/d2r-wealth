@@ -22,6 +22,12 @@ export class GatewayService {
     this.lastBackendSyncAt = null;
     this.lastBackendSyncError = null;
     this.syncInFlight = null;
+    this.lastSaveValidation = {
+      valid: false,
+      message: "Waiting for save scan.",
+      characterCount: 0,
+      checkedAt: null,
+    };
   }
 
   listSaveFiles() {
@@ -51,10 +57,70 @@ export class GatewayService {
       ...this.settings,
       running: Boolean(this.server?.listening),
       files: this.listSaveFiles(),
+      saveValidation: this.lastSaveValidation,
       lastBackendSyncAt: this.lastBackendSyncAt,
       lastBackendSyncError: this.lastBackendSyncError,
       watchedAt: new Date().toISOString(),
     };
+  }
+
+  async refreshSaveValidation() {
+    const checkedAt = new Date().toISOString();
+    try {
+      if (!fs.existsSync(this.settings.saveDir)) {
+        this.lastSaveValidation = {
+          valid: false,
+          message: "Selected folder does not exist.",
+          characterCount: 0,
+          checkedAt,
+        };
+        return this.lastSaveValidation;
+      }
+
+      const files = this.listSaveFiles();
+      const characterFiles = files.filter((file) => file.type === ".d2s");
+      if (!characterFiles.length) {
+        this.lastSaveValidation = {
+          valid: false,
+          message: "No .d2s character save was found in this folder.",
+          characterCount: 0,
+          checkedAt,
+        };
+        return this.lastSaveValidation;
+      }
+
+      const report = await this.buildReport();
+      const characterCount = report.characters.length;
+      const firstCharacter = report.characters[0];
+      if (!characterCount) {
+        this.lastSaveValidation = {
+          valid: false,
+          message: "Character save files were found, but none could be parsed.",
+          characterCount: 0,
+          checkedAt,
+        };
+        return this.lastSaveValidation;
+      }
+
+      this.lastSaveValidation = {
+        valid: true,
+        message:
+          characterCount === 1
+            ? `Validated ${firstCharacter.name} (${firstCharacter.className} level ${firstCharacter.level}).`
+            : `Validated ${characterCount} character saves in this folder.`,
+        characterCount,
+        checkedAt,
+      };
+      return this.lastSaveValidation;
+    } catch (error) {
+      this.lastSaveValidation = {
+        valid: false,
+        message: error instanceof Error ? `Save validation failed: ${error.message}` : "Save validation failed.",
+        characterCount: 0,
+        checkedAt,
+      };
+      return this.lastSaveValidation;
+    }
   }
 
   async syncToBackend() {
@@ -68,6 +134,7 @@ export class GatewayService {
 
     this.syncInFlight = (async () => {
       try {
+        await this.refreshSaveValidation();
         const report = await this.buildReport();
         const response = await fetch(`${this.settings.backendUrl.replace(/\/+$/, "")}/api/ingest`, {
           method: "POST",
@@ -152,6 +219,11 @@ export class GatewayService {
           files: this.listSaveFiles(),
           emittedAt: new Date().toISOString(),
         });
+        void this.refreshSaveValidation()
+          .then(() => {
+            this.sendEvent("settings-changed", this.status());
+          })
+          .catch(() => {});
         void this.syncToBackend().catch(() => {});
       }, CHANGE_DEBOUNCE_MS);
     });
@@ -184,6 +256,7 @@ export class GatewayService {
       this.startWatcher();
     }
 
+    await this.refreshSaveValidation();
     this.sendEvent("settings-changed", this.status());
 
     if (hostChanged || portChanged) {
@@ -341,6 +414,7 @@ export class GatewayService {
     });
 
     this.startWatcher();
+    await this.refreshSaveValidation();
     void this.syncToBackend().catch(() => {});
     return this.status();
   }
