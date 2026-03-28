@@ -182,6 +182,7 @@ const createPreviewReport = (): WealthReport => {
   const importedAt = new Date().toISOString();
   return {
     importedAt,
+    saveSetId: "preview-save-set",
     totalHr: 4.13,
     runeHr: 1.84,
     equippedHr: 1.96,

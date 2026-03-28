@@ -136,6 +136,7 @@ const pairGatewaySync = async () => {
         const saved = writeGatewaySettings({ ...settings, syncToken: claim.gatewayToken }, settingsFilePath());
         applyAutoStart(saved.autoStart);
         await restartGatewayProcess();
+        await waitForGatewayLinked();
         await broadcastStatus();
         return;
       }
@@ -178,6 +179,25 @@ const fetchGatewayStatus = async () => {
     throw new Error(`Gateway health failed with ${response.status}`);
   }
   return response.json();
+};
+
+const waitForGatewayLinked = async ({ timeoutMs = 20000, intervalMs = 1000 } = {}) => {
+  const deadline = Date.now() + timeoutMs;
+  let lastStatus = null;
+
+  while (Date.now() < deadline) {
+    try {
+      lastStatus = await fetchGatewayStatus();
+      if (lastStatus.syncToken && !lastStatus.lastBackendSyncError) {
+        return lastStatus;
+      }
+    } catch {
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  return lastStatus;
 };
 
 const broadcastStatus = async () => {

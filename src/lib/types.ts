@@ -47,6 +47,7 @@ export type WealthSnapshot = {
 
 export type WealthReport = {
   importedAt: string;
+  saveSetId: string;
   totalHr: number;
   runeHr: number;
   equippedHr: number;

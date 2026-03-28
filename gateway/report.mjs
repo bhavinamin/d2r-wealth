@@ -1,5 +1,7 @@
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { read as readCharacter, setConstantData } from "@d2runewizard/d2s";
 import { read as readStash } from "@d2runewizard/d2s/lib/d2/stash.js";
@@ -404,14 +406,14 @@ const parseStackableSectorItems = async (buffer) => {
 
 export const buildGatewayReport = async (saveDir) => {
   const importedAt = new Date().toISOString();
-  const entries = await fs.readdir(saveDir, { withFileTypes: true });
+  const entries = await fsp.readdir(saveDir, { withFileTypes: true });
   const files = entries.filter((entry) => entry.isFile());
   const characters = [];
   const stashes = [];
 
   for (const entry of files) {
     const fullPath = path.join(saveDir, entry.name);
-    const buffer = new Uint8Array(await fs.readFile(fullPath));
+    const buffer = new Uint8Array(await fsp.readFile(fullPath));
     const lower = entry.name.toLowerCase();
     if (lower.endsWith(".d2s")) {
       characters.push(await readCharacter(buffer, undefined, { disableItemEnhancements: true }));
@@ -423,6 +425,22 @@ export const buildGatewayReport = async (saveDir) => {
       });
     }
   }
+
+  const saveSetId = crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        saveDir: path.basename(saveDir).toLowerCase(),
+        characters: characters
+          .map((character) => ({
+            name: String(character.header.name ?? "").toLowerCase(),
+            className: String(character.header.class ?? "").toLowerCase(),
+          }))
+          .sort((left, right) => `${left.name}:${left.className}`.localeCompare(`${right.name}:${right.className}`)),
+        stashes: stashes.map((stash) => stash.fileName.toLowerCase()).sort(),
+      }),
+    )
+    .digest("hex");
 
   const valuedItems = [];
   const unmatchedItems = [];
@@ -529,6 +547,7 @@ export const buildGatewayReport = async (saveDir) => {
 
   return {
     importedAt,
+    saveSetId,
     totalHr,
     runeHr,
     equippedHr,

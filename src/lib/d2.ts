@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { read as readCharacter, setConstantData } from "@d2runewizard/d2s";
 import { read as readStash } from "@d2runewizard/d2s/lib/d2/stash.js";
 import { constants as constants105 } from "@d2runewizard/d2s/lib/data/versions/105_constant_data.js";
@@ -366,9 +367,24 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
       .reduce((a, b) => a + b.valueHr, 0)
       .toFixed(4),
   );
+  const saveSetId = crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        characters: characters
+          .map((character) => ({
+            name: String(character.header.name ?? "").toLowerCase(),
+            className: String(character.header.class ?? "").toLowerCase(),
+          }))
+          .sort((left, right) => `${left.name}:${left.className}`.localeCompare(`${right.name}:${right.className}`)),
+        stashes: stashes.map((stash) => stash.fileName.toLowerCase()).sort(),
+      }),
+    )
+    .digest("hex");
 
   return {
     importedAt,
+    saveSetId,
     totalHr,
     runeHr,
     equippedHr,

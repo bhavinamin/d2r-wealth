@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS account_latest (
   account_id TEXT PRIMARY KEY,
   client_id TEXT NOT NULL,
   received_at TEXT NOT NULL,
+  save_set_id TEXT,
   report_json TEXT NOT NULL,
   FOREIGN KEY (account_id) REFERENCES accounts(id)
 );
@@ -106,6 +107,7 @@ CREATE TABLE IF NOT EXISTS account_history (
   client_id TEXT NOT NULL,
   received_at TEXT NOT NULL,
   imported_at TEXT NOT NULL,
+  save_set_id TEXT,
   total_hr REAL NOT NULL,
   snapshot_json TEXT NOT NULL,
   report_json TEXT NOT NULL,
@@ -146,6 +148,16 @@ CREATE TABLE IF NOT EXISTS market_exact_values (
   updated_at TEXT NOT NULL
 );
 `);
+
+try {
+  db.exec("ALTER TABLE account_latest ADD COLUMN save_set_id TEXT");
+} catch {
+}
+
+try {
+  db.exec("ALTER TABLE account_history ADD COLUMN save_set_id TEXT");
+} catch {
+}
 
 const nowIso = () => new Date().toISOString();
 const randomId = (prefix) => `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
@@ -434,19 +446,31 @@ export const validateGatewayToken = (rawToken) => {
 export const ingestAccountReport = ({ accountId, clientId, report, receivedAt }) => {
   const timestamp = receivedAt ?? nowIso();
   const historyId = randomId("hist");
+  const saveSetId = String(report.saveSetId ?? "").trim() || null;
   const transaction = db.transaction(() => {
-    db.prepare(
-      "INSERT OR REPLACE INTO account_latest (account_id, client_id, received_at, report_json) VALUES (?, ?, ?, ?)",
-    ).run(accountId, clientId, timestamp, JSON.stringify(report));
+    const existingLatest = db.prepare("SELECT save_set_id FROM account_latest WHERE account_id = ?").get(accountId);
+    const saveSetChanged =
+      Boolean(saveSetId) &&
+      Boolean(existingLatest) &&
+      String(existingLatest.save_set_id ?? "") !== saveSetId;
+
+    if (saveSetChanged) {
+      db.prepare("DELETE FROM account_history WHERE account_id = ?").run(accountId);
+    }
 
     db.prepare(
-      "INSERT INTO account_history (id, account_id, client_id, received_at, imported_at, total_hr, snapshot_json, report_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO account_latest (account_id, client_id, received_at, save_set_id, report_json) VALUES (?, ?, ?, ?, ?)",
+    ).run(accountId, clientId, timestamp, saveSetId, JSON.stringify(report));
+
+    db.prepare(
+      "INSERT INTO account_history (id, account_id, client_id, received_at, imported_at, save_set_id, total_hr, snapshot_json, report_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
       historyId,
       accountId,
       clientId,
       timestamp,
       report.importedAt,
+      saveSetId,
       report.totalHr,
       JSON.stringify(report.snapshot),
       JSON.stringify(report),
@@ -463,7 +487,7 @@ export const ingestAccountReport = ({ accountId, clientId, report, receivedAt })
 
 export const readAccountLatest = (accountId) => {
   const row = db
-    .prepare("SELECT account_id, client_id, received_at, report_json FROM account_latest WHERE account_id = ?")
+    .prepare("SELECT account_id, client_id, received_at, save_set_id, report_json FROM account_latest WHERE account_id = ?")
     .get(accountId);
   if (!row) {
     return null;
@@ -472,6 +496,7 @@ export const readAccountLatest = (accountId) => {
     accountId: row.account_id,
     clientId: row.client_id,
     receivedAt: row.received_at,
+    saveSetId: row.save_set_id ?? null,
     report: JSON.parse(row.report_json),
   };
 };
@@ -479,12 +504,13 @@ export const readAccountLatest = (accountId) => {
 export const readAccountHistory = (accountId) =>
   db
     .prepare(
-      "SELECT client_id, received_at, imported_at, total_hr, snapshot_json FROM account_history WHERE account_id = ? ORDER BY received_at ASC",
+      "SELECT client_id, received_at, imported_at, save_set_id, total_hr, snapshot_json FROM account_history WHERE account_id = ? ORDER BY received_at ASC",
     )
     .all(accountId)
     .map((row) => ({
       clientId: row.client_id,
       receivedAt: row.received_at,
+      saveSetId: row.save_set_id ?? null,
       ...JSON.parse(row.snapshot_json),
       totalHr: row.total_hr,
       importedAt: row.imported_at,
