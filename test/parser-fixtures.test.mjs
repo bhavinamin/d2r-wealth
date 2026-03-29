@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import fixture from "./fixtures/parser-account.fixture.json" with { type: "json" };
+import marketData from "../src/generated/market-data.json" with { type: "json" };
 import { buildGatewayReport } from "../gateway/report.mjs";
 import { write as writeCharacter, setConstantData } from "@d2runewizard/d2s";
 import { write as writeStash } from "@d2runewizard/d2s/lib/d2/stash.js";
@@ -578,6 +579,31 @@ test("account totals reconcile to equipped, stash, shared stash, and rune-derive
     report.runeSummary.map((entry) => entry.name),
     ["Jah", "Ist"],
   );
+});
+
+test("rune market keeps key HR conversion anchors stable", () => {
+  const { runeValues, tokenValues } = marketData;
+
+  assert.equal(runeValues.Ber, 1);
+  assert.equal(runeValues.Jah, 1.25);
+  assert.equal(runeValues.Sur, 0.5);
+  assert.equal(runeValues.Lo, 0.75);
+  assert.equal(runeValues.Vex, 0.5);
+  assert.equal(runeValues.Gul, 0.25);
+  assert.equal(runeValues.Ist, 0.125);
+
+  assert.equal(runeValues.Ist * 2, runeValues.Gul);
+  assert.equal(runeValues.Gul * 2, runeValues.Vex);
+  assert.equal(runeValues.Vex * 2, runeValues.Ber);
+  assert.equal(runeValues.Sur * 2, runeValues.Ber);
+
+  for (const rune of ["Ber", "Jah", "Sur", "Lo", "Vex", "Gul", "Ist"]) {
+    const token = tokenValues[rune.toLowerCase()];
+    assert.ok(token, `Expected token market entry for ${rune}`);
+    assert.equal(token.kind, "rune");
+    assert.equal(token.name, rune);
+    assert.equal(token.valueHr, runeValues[rune]);
+  }
 });
 
 test("pricing contract surfaces explicit source labels for rune, workbook, derived recipe, and unresolved values", async () => {

@@ -104,3 +104,10 @@ FILES:
  - test/fixtures/parser-account.fixture.json
  - test/parser-fixtures.test.mjs
 
+[2026-03-29 14:21:07 -04:00] TASK: Add validation coverage for key rune conversion anchors such as `Ber = 1.0 HR`, `Jah`, `Sur`, `Lo`, `Vex`, `Gul`, and `Ist`.
+ISSUE: #35 https://github.com/bhavinamin/d2r-wealth/issues/35
+BRANCH: task/35-add-validation-coverage-for-key-rune-conversion
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - test/parser-fixtures.test.mjs
+
