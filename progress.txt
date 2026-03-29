@@ -12,3 +12,10 @@ FILES:
  - backend/server.mjs
  - package.json
  - test/backend-gateway.integration.test.mjs
+[2026-03-29 13:06:54 -04:00] TASK: Add automated backend and gateway integration tests that cover pairing, token-based ingest, latest snapshot reads, history reads, and disconnect behavior.
+ISSUE: #7 https://github.com/bhavinamin/d2r-wealth/issues/7
+BRANCH: task/7-add-automated-backend-and-gateway-integration-te
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - test/backend-gateway.integration.test.mjs
+
