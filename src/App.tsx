@@ -168,6 +168,7 @@ const derivePendingPairingId = () => {
 };
 
 const portraitForClass = (className: string) => classPortraits[className.toLowerCase()] ?? sorceressPortrait;
+const warningKindLabel = (kind: "unresolved" | "ambiguous") => (kind === "ambiguous" ? "Low confidence" : "Unmatched");
 const rulesetClass = (ruleset: "Classic" | "LoD" | "ROTW") => {
   if (ruleset === "ROTW") {
     return "ruleset-rotw";
@@ -230,6 +231,12 @@ const createPreviewReport = (): WealthReport => {
       },
     ],
     unmatchedItems: [],
+    valuationWarnings: {
+      totalCount: 0,
+      unresolvedCount: 0,
+      ambiguousCount: 0,
+      items: [],
+    },
     snapshot: {
       importedAt,
       totalHr: 4.13,
@@ -310,6 +317,48 @@ function TradeBreakdown(props: { valueHr: number }) {
         </span>
       ))}
     </div>
+  );
+}
+
+function ValuationWarningsPanel(props: { report: WealthReport | null }) {
+  const warnings = props.report?.valuationWarnings;
+  const visibleWarnings = warnings?.items.slice(0, 8) ?? [];
+
+  return (
+    <section className="panel warning-panel">
+      <div className="panel-header">
+        <h3>Valuation Warnings</h3>
+        <span>{warnings?.totalCount ?? 0} excluded items</span>
+      </div>
+      {!warnings?.totalCount ? (
+        <p className="empty-state">All parsed items matched a trusted valuation path.</p>
+      ) : (
+        <>
+          <p className="warning-summary">
+            {warnings.totalCount} items are excluded from HR totals: {warnings.unresolvedCount} unmatched and {warnings.ambiguousCount} low-confidence.
+          </p>
+          <div className="table">
+            {visibleWarnings.map((warning) => (
+              <div key={`${warning.owner}-${warning.source}-${warning.name}`} className="table-row">
+                <div>
+                  <strong>{warning.name}</strong>
+                  <span>
+                    {warning.owner} • {warning.source ?? warning.location}
+                  </span>
+                </div>
+                <div className="warning-meta">
+                  <span className={`warning-pill ${warning.kind}`}>{warningKindLabel(warning.kind)}</span>
+                  <span>{warning.valueSource.detail ?? warning.valueSource.label}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {warnings.totalCount > visibleWarnings.length ? (
+            <p className="warning-summary">Showing {visibleWarnings.length} of {warnings.totalCount} excluded items.</p>
+          ) : null}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -934,6 +983,8 @@ export default function App() {
               </section>
             </aside>
           </section>
+
+          <ValuationWarningsPanel report={report} />
 
           <section className="panel footnote-panel">
             <div className="panel-header">

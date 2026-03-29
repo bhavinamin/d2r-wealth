@@ -7,7 +7,7 @@ export type MarketData = {
 };
 
 export type ValueSource = {
-  type: "rune-market" | "workbook" | "derived" | "unresolved";
+  type: "rune-market" | "workbook" | "derived" | "unresolved" | "ambiguous";
   label: string;
   sheet?: string;
   basis?: string | null;
@@ -33,8 +33,18 @@ export type ValuedItem = {
   sheet?: string;
   valueHr: number;
   tradeValue?: string | null;
-  matchedBy: "exact" | "token" | "socketed" | "unmatched";
+  matchedBy: "exact" | "token" | "socketed" | "unmatched" | "ambiguous";
   valueSource: ValueSource;
+};
+
+export type ValuationWarning = {
+  kind: "unresolved" | "ambiguous";
+  owner: string;
+  name: string;
+  location: ItemLocation;
+  source?: string;
+  valueSource: ValueSource;
+  includedInTotal: false;
 };
 
 export type RuneSummary = {
@@ -76,6 +86,12 @@ export type WealthReport = {
   topInventory: ValuedItem[];
   topSharedStash: ValuedItem[];
   allValuedItems: ValuedItem[];
-  unmatchedItems: Array<{ owner: string; name: string; location: ItemLocation; source?: string; valueSource: ValueSource }>;
+  unmatchedItems: ValuationWarning[];
+  valuationWarnings: {
+    totalCount: number;
+    unresolvedCount: number;
+    ambiguousCount: number;
+    items: ValuationWarning[];
+  };
   snapshot: WealthSnapshot;
 };
