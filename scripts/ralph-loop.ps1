@@ -6,7 +6,8 @@ param(
     [int]$RetryDelaySeconds = 10,
     [int]$CiPollSeconds = 20,
     [string]$RemoteName = "origin",
-    [string]$NotificationHandle = ""
+    [string]$NotificationHandle = "",
+    [int]$PrWaitMinutes = 60
 )
 
 $ErrorActionPreference = "Stop"
@@ -79,6 +80,131 @@ function Get-DefaultBranchCiRuns([string]$DefaultBranch) {
         $runs = $runsJson | ConvertFrom-Json
     }
     return @($runs | Where-Object { $_.workflowName -eq "CI" })
+}
+
+function Get-LatestFailedCiRun([string]$BranchName) {
+    $runsJson = gh run list --branch $BranchName --json databaseId,status,conclusion,workflowName,url,headBranch --limit 20
+    $runs = @()
+    if ($runsJson) {
+        $runs = $runsJson | ConvertFrom-Json
+    }
+
+    return @($runs |
+        Where-Object { $_.workflowName -eq "CI" -and $_.status -eq "completed" -and $_.conclusion -eq "failure" } |
+        Select-Object -First 1)
+}
+
+function Get-OpenPrForBranch([string]$BranchName) {
+    $prsJson = gh pr list --state open --head $BranchName --json number,url,title,isDraft --limit 20
+    $prs = @()
+    if ($prsJson) {
+        $prs = $prsJson | ConvertFrom-Json
+    }
+    return @($prs | Select-Object -First 1)
+}
+
+function Get-PrChecksState([string]$BranchName) {
+    $prJson = gh pr view $BranchName --json url,state,mergedAt,closed,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup
+    $pr = $prJson | ConvertFrom-Json
+
+    $checksState = "not_reported"
+    if ($pr.statusCheckRollup) {
+        $states = New-Object System.Collections.Generic.List[string]
+        foreach ($check in @($pr.statusCheckRollup)) {
+            if ($check.state) {
+                [void]$states.Add([string]$check.state)
+                continue
+            }
+
+            if ($check.status -and $check.status -ne "COMPLETED") {
+                [void]$states.Add("PENDING")
+                continue
+            }
+
+            if ($check.conclusion) {
+                switch ([string]$check.conclusion) {
+                    "SUCCESS" { [void]$states.Add("SUCCESS") }
+                    "NEUTRAL" { [void]$states.Add("SUCCESS") }
+                    "SKIPPED" { [void]$states.Add("SUCCESS") }
+                    "FAILURE" { [void]$states.Add("FAILURE") }
+                    "ERROR" { [void]$states.Add("ERROR") }
+                    "TIMED_OUT" { [void]$states.Add("FAILURE") }
+                    "ACTION_REQUIRED" { [void]$states.Add("FAILURE") }
+                    "CANCELLED" { [void]$states.Add("FAILURE") }
+                    default { [void]$states.Add([string]$check.conclusion) }
+                }
+            }
+        }
+
+        if ($states.Count -gt 0) {
+            if ($states -contains "FAILURE" -or $states -contains "ERROR") {
+                $checksState = "failing"
+            } elseif ($states -contains "PENDING" -or $states -contains "EXPECTED") {
+                $checksState = "pending"
+            } elseif ($states -contains "SUCCESS") {
+                $checksState = "passing"
+            } else {
+                $checksState = ($states | Select-Object -First 1)
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        url = [string]$pr.url
+        state = [string]$pr.state
+        mergedAt = [string]$pr.mergedAt
+        closed = [bool]$pr.closed
+        isDraft = [bool]$pr.isDraft
+        reviewDecision = [string]$pr.reviewDecision
+        mergeStateStatus = [string]$pr.mergeStateStatus
+        checksState = $checksState
+    }
+}
+
+function Wait-ForPrOutcome([string]$BranchName, [int]$PollSeconds, [int]$MaxWaitMinutes) {
+    $deadline = (Get-Date).AddMinutes($MaxWaitMinutes)
+
+    while ($true) {
+        $status = Get-PrChecksState -BranchName $BranchName
+
+        if ($status.mergedAt) {
+            return [pscustomobject]@{
+                merged = $true
+                diagnosis = "PR merged: $($status.url)"
+            }
+        }
+
+        if ($status.state -eq "CLOSED" -or ($status.closed -and -not $status.mergedAt)) {
+            return [pscustomobject]@{
+                merged = $false
+                diagnosis = "PR closed without merge: $($status.url)"
+            }
+        }
+
+        if ($status.reviewDecision -eq "CHANGES_REQUESTED") {
+            return [pscustomobject]@{
+                merged = $false
+                diagnosis = "PR review is requesting changes: $($status.url)"
+            }
+        }
+
+        if ($status.checksState -eq "failing") {
+            return [pscustomobject]@{
+                merged = $false
+                diagnosis = "PR checks are failing: $($status.url)"
+            }
+        }
+
+        if ((Get-Date) -gt $deadline) {
+            return [pscustomobject]@{
+                merged = $false
+                diagnosis = "Timed out waiting for PR completion: $($status.url)"
+            }
+        }
+
+        Write-Host "Waiting for PR checks/merge: $($status.url) (checks=$($status.checksState), mergeState=$($status.mergeStateStatus))"
+        Start-Sleep -Seconds $PollSeconds
+    }
 }
 
 function Wait-ForDefaultBranchCi([string]$DefaultBranch, [int]$PollSeconds) {
@@ -218,6 +344,188 @@ function Send-GitHubNotification([string]$Handle, [string]$Message) {
     }
 }
 
+function Get-AllStatusPaths {
+    $paths = @()
+    foreach ($line in (git status --porcelain)) {
+        if (-not $line) {
+            continue
+        }
+
+        $pathText = $line.Substring(3)
+        if ($pathText.Contains(" -> ")) {
+            $pathText = $pathText.Split(" -> ")[1]
+        }
+        $paths += $pathText.Trim()
+    }
+    return $paths | Sort-Object -Unique
+}
+
+function Get-NewStatusPaths([string[]]$BaselinePaths) {
+    $baseline = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($path in $BaselinePaths) {
+        if ($path) {
+            [void]$baseline.Add($path)
+        }
+    }
+
+    $newPaths = @()
+    foreach ($path in (Get-AllStatusPaths)) {
+        if (-not $baseline.Contains($path)) {
+            $newPaths += $path
+        }
+    }
+
+    return $newPaths | Sort-Object -Unique
+}
+
+function Get-FailureLogText([string]$BranchName) {
+    $run = Get-LatestFailedCiRun -BranchName $BranchName
+    if ($run.Count -eq 0) {
+        return ""
+    }
+
+    $tempLogFile = Join-Path ([System.IO.Path]::GetTempPath()) ("ralph-loop-failed-run-" + [System.Guid]::NewGuid().ToString() + ".txt")
+    try {
+        & cmd.exe /d /s /c "gh run view $($run[0].databaseId) --log-failed 2>&1" | Tee-Object -FilePath $tempLogFile | Out-Null
+        if (Test-Path -LiteralPath $tempLogFile) {
+            return Get-Content -LiteralPath $tempLogFile -Raw
+        }
+        return ""
+    } finally {
+        if (Test-Path -LiteralPath $tempLogFile) {
+            Remove-Item -LiteralPath $tempLogFile -Force
+        }
+    }
+}
+
+function Ensure-RepairBranch([string]$DefaultBranch) {
+    $currentBranch = Get-CurrentBranch
+    if ($currentBranch -ne $DefaultBranch) {
+        return [pscustomobject]@{
+            branchName = $currentBranch
+            created = $false
+        }
+    }
+
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $branchName = "fix/ci-repair-$timestamp"
+    git switch -c $branchName | Out-Null
+    return [pscustomobject]@{
+        branchName = $branchName
+        created = $true
+    }
+}
+
+function Ensure-RepairPr([string]$BranchName, [string]$DefaultBranch, [string]$Diagnosis) {
+    $existingPr = Get-OpenPrForBranch -BranchName $BranchName
+    if ($existingPr.Count -gt 0) {
+        gh pr ready $BranchName | Out-Null
+        gh pr merge $BranchName --auto --squash --delete-branch | Out-Null
+        return $existingPr[0]
+    }
+
+    $safeDiagnosis = if ($Diagnosis) { $Diagnosis } else { "Repair failed autonomous CI/check state." }
+    $title = "repair: unblock autonomous CI"
+    $body = @"
+## Summary
+- Repair autonomous CI/check failures blocking the Ralph loop
+
+## Context
+- $safeDiagnosis
+"@
+
+    $prUrl = "$(gh pr create --base $DefaultBranch --head $BranchName --title $title --body $body)".Trim()
+    gh pr ready $BranchName | Out-Null
+    gh pr merge $BranchName --auto --squash --delete-branch | Out-Null
+    return [pscustomobject]@{
+        url = $prUrl
+        title = $title
+    }
+}
+
+function Invoke-Verification {
+    Write-Host "Running: powershell -ExecutionPolicy Bypass -File .\\scripts\\verify.ps1"
+    powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Repair verification failed with exit code $LASTEXITCODE."
+    }
+}
+
+function Invoke-RepairAttempt([string]$RepoRoot, [string]$DefaultBranch, [string]$RemoteName, [string]$FailureOutputFile, [string]$Diagnosis, [int]$PollSeconds, [int]$MaxWaitMinutes) {
+    $repairBranch = Ensure-RepairBranch -DefaultBranch $DefaultBranch
+    $branchName = $repairBranch.branchName
+    $baselinePaths = @(Get-AllStatusPaths)
+    $failureTranscript = Get-Content -LiteralPath $FailureOutputFile -Raw
+    $failedRunLog = Get-FailureLogText -BranchName $branchName
+    if (-not $failedRunLog -and $branchName -ne $DefaultBranch) {
+        $failedRunLog = Get-FailureLogText -BranchName $DefaultBranch
+    }
+
+    $prompt = @"
+You are repairing a failed autonomous Ralph run in this repository: $RepoRoot
+
+Target branch:
+- $branchName
+
+Constraints:
+- Fix only the failure reflected in the logs below.
+- Do not start a new PRD task.
+- Do not switch branches, create issues, or update progress.txt.
+- You may edit code, tests, or GitHub workflow files as needed to make the failure pass.
+- Leave the repository ready for local verification.
+- End stdout with:
+NOTES
+HUMAN_REQUIRED: yes|no
+HUMAN_REASON: <short reason if needed>
+
+Supervisor diagnosis:
+$Diagnosis
+
+Local failure transcript:
+$failureTranscript
+
+Latest failed CI log:
+$failedRunLog
+"@
+
+    $repairOutputFile = Join-Path ([System.IO.Path]::GetTempPath()) ("ralph-loop-repair-" + [System.Guid]::NewGuid().ToString() + ".txt")
+    try {
+        $prompt | codex exec - -C $RepoRoot --dangerously-bypass-approvals-and-sandbox | Tee-Object -FilePath $repairOutputFile | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            return [pscustomobject]@{
+                resolved = $false
+                diagnosis = "Codex repair command failed."
+            }
+        }
+
+        $changedPaths = @(Get-NewStatusPaths -BaselinePaths $baselinePaths)
+        if ($changedPaths.Count -eq 0) {
+            return [pscustomobject]@{
+                resolved = $false
+                diagnosis = "Codex repair produced no file changes."
+            }
+        }
+
+        Invoke-Verification
+
+        git add -- $changedPaths
+        git commit -m "repair: unblock autonomous loop failure" | Out-Null
+        git push -u $RemoteName $branchName | Out-Null
+
+        $pr = Ensure-RepairPr -BranchName $branchName -DefaultBranch $DefaultBranch -Diagnosis $Diagnosis
+        $outcome = Wait-ForPrOutcome -BranchName $branchName -PollSeconds $PollSeconds -MaxWaitMinutes $MaxWaitMinutes
+        return [pscustomobject]@{
+            resolved = [bool]$outcome.merged
+            diagnosis = $outcome.diagnosis
+            prUrl = if ($pr.url) { $pr.url } else { "" }
+        }
+    } finally {
+        if (Test-Path -LiteralPath $repairOutputFile) {
+            Remove-Item -LiteralPath $repairOutputFile -Force
+        }
+    }
+}
+
 Assert-CommandAvailable -Name "git"
 Assert-CommandAvailable -Name "gh"
 Assert-CommandAvailable -Name "codex"
@@ -236,9 +544,38 @@ while ($loopCount -lt $MaxLoops) {
     $loopCount += 1
     Write-Host "Loop $loopCount of $MaxLoops"
 
-    Ensure-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $defaultBranch
-    Wait-ForDefaultBranchCi -DefaultBranch $defaultBranch -PollSeconds $CiPollSeconds
-    Ensure-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $defaultBranch
+    try {
+        Ensure-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $defaultBranch
+        Wait-ForDefaultBranchCi -DefaultBranch $defaultBranch -PollSeconds $CiPollSeconds
+        Ensure-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $defaultBranch
+    } catch {
+        $preflightFailureFile = [System.IO.Path]::GetTempFileName()
+        try {
+            Set-Content -LiteralPath $preflightFailureFile -Value $_.Exception.Message -Encoding UTF8
+            $repair = Invoke-RepairAttempt -RepoRoot $repoRoot -DefaultBranch $defaultBranch -RemoteName $RemoteName -FailureOutputFile $preflightFailureFile -Diagnosis $_.Exception.Message -PollSeconds $CiPollSeconds -MaxWaitMinutes $PrWaitMinutes
+        } finally {
+            if (Test-Path -LiteralPath $preflightFailureFile) {
+                Remove-Item -LiteralPath $preflightFailureFile -Force
+            }
+        }
+        if (-not $repair.resolved) {
+            Send-GitHubNotification -Handle $NotificationHandle -Message @"
+human attention is required for the autonomous Ralph loop.
+
+Loop:
+- iteration $loopCount of $MaxLoops
+
+Diagnosis:
+- $($repair.diagnosis)
+
+Repository:
+- $($repoInfo.nameWithOwner)
+- branch: $defaultBranch
+"@
+            throw "Autonomous loop blocked before task start. A GitHub notification was posted."
+        }
+        continue
+    }
 
     $success = $false
     $lastDiagnosis = ""
@@ -274,17 +611,18 @@ while ($loopCount -lt $MaxLoops) {
             $lastDiagnosis = $assessment.diagnosis
             Write-Host "Recovery diagnosis: $lastDiagnosis"
 
-            if (-not $assessment.humanRequired -and -not $assessment.retryRecommended) {
+            if ($assessment.retryRecommended -and -not $assessment.humanRequired) {
+                Start-Sleep -Seconds $RetryDelaySeconds
+                Ensure-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $defaultBranch
+                continue
+            }
+
+            $repair = Invoke-RepairAttempt -RepoRoot $repoRoot -DefaultBranch $defaultBranch -RemoteName $RemoteName -FailureOutputFile $runOutputFile -Diagnosis $lastDiagnosis -PollSeconds $CiPollSeconds -MaxWaitMinutes $PrWaitMinutes
+            $lastDiagnosis = $repair.diagnosis
+            if ($repair.resolved) {
                 $success = $true
                 break
             }
-
-            if (-not $assessment.retryRecommended -or $assessment.humanRequired) {
-                break
-            }
-
-            Start-Sleep -Seconds $RetryDelaySeconds
-            Ensure-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $defaultBranch
         } finally {
             if (Test-Path -LiteralPath $runOutputFile) {
                 Remove-Item -LiteralPath $runOutputFile -Force

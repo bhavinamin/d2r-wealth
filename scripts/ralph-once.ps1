@@ -9,6 +9,8 @@ param(
     [string]$ReviewTriggerComment = "",
     [bool]$EnableAutoMerge = $true,
     [string]$NotificationHandle = "",
+    [int]$PrPollSeconds = 20,
+    [int]$PrWaitMinutes = 60,
     [switch]$ShowPrompt
 )
 
@@ -522,6 +524,55 @@ function Set-PrAutoMerge([string]$BranchName) {
     gh pr merge $BranchName --auto --squash --delete-branch | Out-Null
 }
 
+function Get-PrCompletionStatus([string]$BranchName) {
+    $prJson = gh pr view $BranchName --json url,state,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup,reviewRequests,mergedAt,closed
+    $pr = $prJson | ConvertFrom-Json
+    $reviewStatus = Get-PrReviewStatus -BranchName $BranchName
+
+    return [pscustomobject]@{
+        url = [string]$pr.url
+        state = [string]$pr.state
+        closed = [bool]$pr.closed
+        mergedAt = [string]$pr.mergedAt
+        isDraft = [bool]$pr.isDraft
+        reviewDecision = [string]$pr.reviewDecision
+        mergeStateStatus = [string]$pr.mergeStateStatus
+        checksState = [string]$reviewStatus.checksState
+        requestedReviewers = $reviewStatus.requestedReviewers
+    }
+}
+
+function Wait-ForPrCompletion([string]$BranchName, [int]$PollSeconds, [int]$MaxWaitMinutes) {
+    $deadline = (Get-Date).AddMinutes($MaxWaitMinutes)
+
+    while ($true) {
+        $prStatus = Get-PrCompletionStatus -BranchName $BranchName
+
+        if ($prStatus.mergedAt) {
+            return $prStatus
+        }
+
+        if ($prStatus.state -eq "CLOSED" -or ($prStatus.closed -and -not $prStatus.mergedAt)) {
+            throw "PR closed without merge: $($prStatus.url)"
+        }
+
+        if ($prStatus.reviewDecision -eq "CHANGES_REQUESTED") {
+            throw "PR review is requesting changes: $($prStatus.url)"
+        }
+
+        if ($prStatus.checksState -eq "failing") {
+            throw "PR checks are failing: $($prStatus.url)"
+        }
+
+        if ((Get-Date) -gt $deadline) {
+            throw "Timed out waiting for PR completion: $($prStatus.url)"
+        }
+
+        Write-Host "Waiting for PR checks/merge: $($prStatus.url) (checks=$($prStatus.checksState), mergeState=$($prStatus.mergeStateStatus))"
+        Start-Sleep -Seconds $PollSeconds
+    }
+}
+
 function Get-AgentHumanRequirement([string]$OutputFile) {
     $result = [pscustomobject]@{
         required = $false
@@ -668,6 +719,7 @@ try {
     $agentHumanRequirement = Get-AgentHumanRequirement -OutputFile $tempOutputFile
     $notificationMessage = Get-HumanNotificationMessage -AgentHumanRequirement $agentHumanRequirement -ReviewStatus $reviewStatus -Handle $NotificationHandle -Task $task -BranchName $branchName
     Send-HumanNotification -BranchName $branchName -Message $notificationMessage
+    $completionStatus = Wait-ForPrCompletion -BranchName $branchName -PollSeconds $PrPollSeconds -MaxWaitMinutes $PrWaitMinutes
 
     Write-Host "Completed task: $task"
     Write-Host "Issue: #$($issue.number) $($issue.url)"
@@ -685,6 +737,7 @@ try {
         Write-Host "Human follow-up reason: $($agentHumanRequirement.reason)"
     }
     Write-Host "Merge ready: $($reviewStatus.mergeReady)"
+    Write-Host "PR merged at: $($completionStatus.mergedAt)"
 } finally {
     if (Test-Path -LiteralPath $tempPromptFile) {
         Remove-Item -LiteralPath $tempPromptFile -Force
