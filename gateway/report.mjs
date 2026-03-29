@@ -37,6 +37,29 @@ const runewordRecipes = {
   Spirit: ["Tal", "Thul", "Ort", "Amn"],
 };
 
+const liveRuneValueSource = () => ({
+  type: "rune-market",
+  label: "Live Rune Market",
+});
+
+const workbookValueSource = (sheet, basis = null) => ({
+  type: "workbook",
+  label: `Workbook: ${sheet}`,
+  sheet,
+  basis,
+});
+
+const derivedValueSource = (label, detail = null) => ({
+  type: "derived",
+  label,
+  detail,
+});
+
+const unresolvedValueSource = () => ({
+  type: "unresolved",
+  label: "Unresolved Market Value",
+});
+
 const isRotwEnvironment = (saveDir, files = []) => {
   const haystack = `${saveDir} ${files.map((file) => file.name ?? "").join(" ")}`.toLowerCase();
   return haystack.includes("rotw") || haystack.includes("d2rmm_solo") || haystack.includes("modernsharedstash");
@@ -226,12 +249,14 @@ const evaluateItem = (item, owner, location, source) => {
       source,
       valueHr: 0,
       matchedBy: "unmatched",
+      valueSource: unresolvedValueSource(),
     };
   }
 
   const resolvedRuneword = lookupRunewordName(item);
   if (resolvedRuneword && runewordRecipes[resolvedRuneword]) {
-    const valueHr = runewordRecipes[resolvedRuneword].reduce((total, rune) => total + (market.runeValues[rune] ?? 0), 0);
+    const recipe = runewordRecipes[resolvedRuneword];
+    const valueHr = recipe.reduce((total, rune) => total + (market.runeValues[rune] ?? 0), 0);
     return {
       id: `${owner}-${source}-${displayName(item)}`,
       name: resolvedRuneword,
@@ -241,6 +266,7 @@ const evaluateItem = (item, owner, location, source) => {
       source,
       valueHr,
       matchedBy: "exact",
+      valueSource: derivedValueSource("Derived Runeword Recipe", `${resolvedRuneword} = ${recipe.join(" + ")}`),
     };
   }
 
@@ -255,6 +281,7 @@ const evaluateItem = (item, owner, location, source) => {
       source,
       valueHr: tokenMatch.valueHr * quantity,
       matchedBy: "token",
+      valueSource: tokenMatch.kind === "rune" ? liveRuneValueSource() : workbookValueSource("Workbook Token Market"),
     };
   }
 
@@ -271,6 +298,7 @@ const evaluateItem = (item, owner, location, source) => {
       valueHr: exactMatch.valueHr,
       tradeValue: exactMatch.tradeLabel ?? null,
       matchedBy: "exact",
+      valueSource: workbookValueSource(exactMatch.sheet, exactMatch.basis ?? null),
     };
   }
 
@@ -288,6 +316,7 @@ const evaluateItem = (item, owner, location, source) => {
       source,
       valueHr: socketedValue,
       matchedBy: "socketed",
+      valueSource: derivedValueSource("Derived Socketed Value"),
     };
   }
 
@@ -300,6 +329,7 @@ const evaluateItem = (item, owner, location, source) => {
     source,
     valueHr: 0,
     matchedBy: "unmatched",
+    valueSource: unresolvedValueSource(),
   };
 };
 
@@ -468,7 +498,7 @@ export const buildGatewayReport = async (saveDir) => {
     unmatchedItems.push(
       ...characterValues
         .filter((item) => item.matchedBy === "unmatched")
-        .map((item) => ({ owner: item.owner, name: item.name, location: item.location })),
+        .map((item) => ({ owner: item.owner, name: item.name, location: item.location, source: item.source, valueSource: item.valueSource })),
     );
 
     characterSummaries.push({
@@ -502,7 +532,7 @@ export const buildGatewayReport = async (saveDir) => {
       unmatchedItems.push(
         ...valuations
           .filter((item) => item.matchedBy === "unmatched")
-          .map((item) => ({ owner: item.owner, name: item.name, location: item.location })),
+          .map((item) => ({ owner: item.owner, name: item.name, location: item.location, source: item.source, valueSource: item.valueSource })),
       );
     }
 
@@ -520,6 +550,7 @@ export const buildGatewayReport = async (saveDir) => {
       count: counts.count,
       looseCount: counts.looseCount,
       totalHr: Number(((market.runeValues[name] ?? 0) * counts.count).toFixed(4)),
+      valueSource: liveRuneValueSource(),
     }))
     .filter((entry) => entry.count > 0)
     .sort((left, right) => right.totalHr - left.totalHr || right.count - left.count);

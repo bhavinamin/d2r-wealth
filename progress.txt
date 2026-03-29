@@ -92,3 +92,15 @@ FILES:
  - docs/
  - README.md
 
+[2026-03-29 14:19:09 -04:00] TASK: Formalize the market pricing contract so rune values, workbook values, derived recipe values, and unresolved items are all surfaced with an explicit source label.
+ISSUE: #33 https://github.com/bhavinamin/d2r-wealth/issues/33
+BRANCH: task/33-formalize-the-market-pricing-contract-so-rune-va
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - gateway/report.mjs
+ - src/App.tsx
+ - src/lib/d2.ts
+ - src/lib/types.ts
+ - test/fixtures/parser-account.fixture.json
+ - test/parser-fixtures.test.mjs
+

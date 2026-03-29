@@ -3,7 +3,7 @@ import { read as readCharacter, setConstantData } from "@d2runewizard/d2s";
 import { read as readStash } from "@d2runewizard/d2s/lib/d2/stash.js";
 import { constants as constants105 } from "@d2runewizard/d2s/lib/data/versions/105_constant_data.js";
 import { canonicalBaseName, market, normalizeMarketName } from "./market.js";
-import type { ItemLocation, RuneSummary, ValuedItem, WealthReport } from "./types.js";
+import type { ItemLocation, RuneSummary, ValuedItem, ValueSource, WealthReport } from "./types.js";
 
 type D2Item = {
   type_name?: string;
@@ -66,6 +66,29 @@ const runewordRecipes: Record<string, string[]> = {
   Insight: ["Ral", "Tir", "Tal", "Sol"],
   Spirit: ["Tal", "Thul", "Ort", "Amn"],
 };
+
+const liveRuneValueSource = (): ValueSource => ({
+  type: "rune-market",
+  label: "Live Rune Market",
+});
+
+const workbookValueSource = (sheet: string, basis?: string | null): ValueSource => ({
+  type: "workbook",
+  label: `Workbook: ${sheet}`,
+  sheet,
+  basis: basis ?? null,
+});
+
+const derivedValueSource = (label: string, detail?: string): ValueSource => ({
+  type: "derived",
+  label,
+  detail: detail ?? null,
+});
+
+const unresolvedValueSource = (): ValueSource => ({
+  type: "unresolved",
+  label: "Unresolved Market Value",
+});
 
 const isRotwEnvironment = (names: string[]) => {
   const haystack = names.join(" ").toLowerCase();
@@ -176,6 +199,7 @@ const matchTokenValue = (item: D2Item) => {
 const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, source: string): ValuedItem => {
   const resolvedRuneword = lookupRunewordName(item);
   if (resolvedRuneword && runewordRecipes[resolvedRuneword]) {
+    const recipe = runewordRecipes[resolvedRuneword];
     const valueHr = runewordRecipes[resolvedRuneword].reduce((total, rune) => total + (market.runeValues[rune] ?? 0), 0);
     return {
       id: `${owner}-${source}-${displayName(item)}`,
@@ -185,6 +209,7 @@ const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, sourc
       source,
       valueHr,
       matchedBy: "exact",
+      valueSource: derivedValueSource("Derived Runeword Recipe", `${resolvedRuneword} = ${recipe.join(" + ")}`),
     };
   }
 
@@ -198,6 +223,7 @@ const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, sourc
       source,
       valueHr: tokenMatch.valueHr,
       matchedBy: "token",
+      valueSource: tokenMatch.kind === "rune" ? liveRuneValueSource() : workbookValueSource("Workbook Token Market"),
     };
   }
 
@@ -212,6 +238,7 @@ const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, sourc
       sheet: exactMatch.sheet,
       valueHr: exactMatch.valueHr,
       matchedBy: "exact",
+      valueSource: workbookValueSource(exactMatch.sheet, exactMatch.basis),
     };
   }
 
@@ -228,6 +255,7 @@ const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, sourc
       source,
       valueHr: socketedValue,
       matchedBy: "socketed",
+      valueSource: derivedValueSource("Derived Socketed Value"),
     };
   }
 
@@ -239,6 +267,7 @@ const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, sourc
     source,
     valueHr: 0,
     matchedBy: "unmatched",
+    valueSource: unresolvedValueSource(),
   };
 };
 
@@ -278,7 +307,7 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
   }
 
   const valuedItems: ValuedItem[] = [];
-  const unmatchedItems: Array<{ owner: string; name: string; location: ItemLocation }> = [];
+  const unmatchedItems: WealthReport["unmatchedItems"] = [];
   const runeCounts = new Map<string, { count: number; looseCount: number }>();
   const characterSummaries: WealthReport["characters"] = [];
 
@@ -305,7 +334,7 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
     unmatchedItems.push(
       ...characterValues
         .filter((item) => item.matchedBy === "unmatched")
-        .map((item) => ({ owner: item.owner, name: item.name, location: item.location })),
+        .map((item) => ({ owner: item.owner, name: item.name, location: item.location, source: item.source, valueSource: item.valueSource })),
     );
 
     characterSummaries.push({
@@ -333,7 +362,7 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
       unmatchedItems.push(
         ...valuations
           .filter((item) => item.matchedBy === "unmatched")
-          .map((item) => ({ owner: item.owner, name: item.name, location: item.location })),
+          .map((item) => ({ owner: item.owner, name: item.name, location: item.location, source: item.source, valueSource: item.valueSource })),
       );
     }
   }
@@ -344,6 +373,7 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
       count: counts.count,
       looseCount: counts.looseCount,
       totalHr: Number(((market.runeValues[name] ?? 0) * counts.count).toFixed(4)),
+      valueSource: liveRuneValueSource(),
     }))
     .sort((left, right) => right.totalHr - left.totalHr || right.count - left.count);
 
