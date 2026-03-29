@@ -92,10 +92,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         try
         {
             _logger.Info("Saving gateway settings from tray UI.");
-            _settings = _settingsForm.CollectSettings(_settings);
-            _settingsStore.Save(_settings);
-            _processManager.ApplyAutoStart(_settings.AutoStart);
-            var health = await _apiClient.SaveGatewaySettingsAsync(_settings);
+            var health = await PersistFormSettingsAsync();
             _settingsForm.ApplySettings(_settings, health);
         }
         finally
@@ -109,6 +106,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _settingsForm.SetBusyState(true, "Opening browser for Discord sign-in...");
         try
         {
+            _logger.Info("Persisting tray settings before Discord pairing.");
+            var savedHealth = await PersistFormSettingsAsync();
+            _settingsForm.ApplySettings(_settings, savedHealth);
+            if (savedHealth?.SaveValidation?.Valid != true)
+            {
+                return;
+            }
+
             _logger.Info("Starting Discord pairing from tray UI.");
             await _apiClient.PairGatewayAsync(_settings, status => _settingsForm.SetBusyState(true, status));
             _settingsStore.Save(_settings);
@@ -145,11 +150,17 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         var health = await _apiClient.LoadHealthAsync(_settings);
         _settingsForm.ApplySettings(_settings, health);
-        _notifyIcon.Text = health?.LastBackendSyncError is not null
-            ? "D2 Wealth Gateway - Sync Error"
-            : !string.IsNullOrWhiteSpace(_settings.SyncToken)
-                ? "D2 Wealth Gateway - Linked"
-                : "D2 Wealth Gateway";
+        var lifecycle = GatewayStatusPresentation.LifecycleLabel(health);
+        _notifyIcon.Text = $"D2 Wealth Gateway - {lifecycle}";
+    }
+
+    private async Task<GatewayHealth?> PersistFormSettingsAsync()
+    {
+        _settings = _settingsForm.CollectSettings(_settings);
+        _settingsStore.Save(_settings);
+        _processManager.ApplyAutoStart(_settings.AutoStart);
+        _processManager.Start();
+        return await _apiClient.SaveGatewaySettingsAsync(_settings);
     }
 
     private async Task ExitAsync()

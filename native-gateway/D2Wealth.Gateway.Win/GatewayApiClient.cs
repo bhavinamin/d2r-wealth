@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 
@@ -47,6 +48,7 @@ internal sealed class GatewayApiClient
 
     public async Task PairGatewayAsync(GatewaySettings settings, Action<string> statusCallback, CancellationToken cancellationToken = default)
     {
+        statusCallback("Opening Discord sign-in in your browser...");
         var pairingResponse = await _httpClient.PostAsJsonAsync($"{settings.BackendUrl.TrimEnd('/')}/api/gateway/pairing-sessions", new
         {
             clientId = settings.ClientId,
@@ -86,6 +88,7 @@ internal sealed class GatewayApiClient
 
             settings.SyncToken = claim.GatewayToken;
             _settingsStore.Save(settings);
+            statusCallback("Pairing approved. Waiting for the first sync result...");
             return;
         }
 
@@ -108,9 +111,21 @@ internal sealed class GatewayApiClient
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", settings.SyncToken);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                settings.SyncToken = string.Empty;
+                settings.AccountId = string.Empty;
+                _settingsStore.Save(settings);
+                return;
+            }
+
+            response.EnsureSuccessStatusCode();
+        }
 
         settings.SyncToken = string.Empty;
+        settings.AccountId = string.Empty;
         _settingsStore.Save(settings);
     }
 

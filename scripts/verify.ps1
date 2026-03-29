@@ -25,3 +25,13 @@ if ($scriptNames -contains "build") {
         throw "npm run build failed with exit code $LASTEXITCODE."
     }
 }
+
+$nativeProjectPath = Join-Path $PSScriptRoot "..\native-gateway\D2Wealth.Gateway.Win\D2Wealth.Gateway.Win.csproj"
+$isWindowsHost = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
+if ($isWindowsHost -and (Test-Path -LiteralPath $nativeProjectPath)) {
+    Write-Host "Running: dotnet build $nativeProjectPath -c Release"
+    dotnet build $nativeProjectPath -c Release
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet build failed with exit code $LASTEXITCODE."
+    }
+}
