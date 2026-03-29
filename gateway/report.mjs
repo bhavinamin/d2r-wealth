@@ -55,9 +55,16 @@ const derivedValueSource = (label, detail = null) => ({
   detail,
 });
 
-const unresolvedValueSource = () => ({
+const unresolvedValueSource = (detail = null) => ({
   type: "unresolved",
   label: "Unresolved Market Value",
+  detail,
+});
+
+const ambiguousValueSource = (detail = null) => ({
+  type: "ambiguous",
+  label: "Low-Confidence Market Value",
+  detail,
 });
 
 const isRotwEnvironment = (saveDir, files = []) => {
@@ -236,10 +243,26 @@ const stackQuantity = (item) => {
   return item.amount_in_shared_stash > 0 ? item.amount_in_shared_stash : 1;
 };
 
+const toWarningEntry = (item) => ({
+  kind: item.matchedBy === "ambiguous" ? "ambiguous" : "unresolved",
+  owner: item.owner,
+  name: item.name,
+  location: item.location,
+  source: item.source,
+  valueSource: item.valueSource,
+  includedInTotal: false,
+});
+
+const collectWarnings = (items, valuationWarnings, unmatchedItems) => {
+  const warnings = items.filter((item) => item.matchedBy === "unmatched" || item.matchedBy === "ambiguous").map(toWarningEntry);
+  valuationWarnings.push(...warnings);
+  unmatchedItems.push(...warnings.filter((warning) => warning.kind === "unresolved"));
+};
+
 const evaluateItem = (item, owner, location, source) => {
   const quantity = stackQuantity(item);
 
-  if (isLowConfidenceStoredAccessory(item, location) || (location !== "equipped" && isSuspiciousParsedItem(item))) {
+  if (isLowConfidenceStoredAccessory(item, location)) {
     return {
       id: `${owner}-${source}-${displayName(item)}`,
       name: displayName(item),
@@ -248,8 +271,22 @@ const evaluateItem = (item, owner, location, source) => {
       location,
       source,
       valueHr: 0,
-      matchedBy: "unmatched",
-      valueSource: unresolvedValueSource(),
+      matchedBy: "ambiguous",
+      valueSource: ambiguousValueSource("Stored accessory pricing needs affix-aware matching before it can affect HR totals."),
+    };
+  }
+
+  if (location !== "equipped" && isSuspiciousParsedItem(item)) {
+    return {
+      id: `${owner}-${source}-${displayName(item)}`,
+      name: displayName(item),
+      quantity,
+      owner,
+      location,
+      source,
+      valueHr: 0,
+      matchedBy: "ambiguous",
+      valueSource: ambiguousValueSource("Parsed item data looked suspicious, so it was excluded from trust-critical totals."),
     };
   }
 
@@ -329,7 +366,7 @@ const evaluateItem = (item, owner, location, source) => {
     source,
     valueHr: 0,
     matchedBy: "unmatched",
-    valueSource: unresolvedValueSource(),
+    valueSource: unresolvedValueSource("No workbook, token, or derived pricing match was found for this item."),
   };
 };
 
@@ -474,6 +511,7 @@ export const buildGatewayReport = async (saveDir) => {
 
   const valuedItems = [];
   const unmatchedItems = [];
+  const valuationWarnings = [];
   const runeCounts = new Map();
   const characterSummaries = [];
 
@@ -495,11 +533,7 @@ export const buildGatewayReport = async (saveDir) => {
     ];
 
     valuedItems.push(...characterValues);
-    unmatchedItems.push(
-      ...characterValues
-        .filter((item) => item.matchedBy === "unmatched")
-        .map((item) => ({ owner: item.owner, name: item.name, location: item.location, source: item.source, valueSource: item.valueSource })),
-    );
+    collectWarnings(characterValues, valuationWarnings, unmatchedItems);
 
     characterSummaries.push({
       name: character.header.name,
@@ -529,11 +563,7 @@ export const buildGatewayReport = async (saveDir) => {
       );
 
       valuedItems.push(...valuations);
-      unmatchedItems.push(
-        ...valuations
-          .filter((item) => item.matchedBy === "unmatched")
-          .map((item) => ({ owner: item.owner, name: item.name, location: item.location, source: item.source, valueSource: item.valueSource })),
-      );
+      collectWarnings(valuations, valuationWarnings, unmatchedItems);
     }
 
     if (materialItems.length) {
@@ -541,6 +571,7 @@ export const buildGatewayReport = async (saveDir) => {
         evaluateItem(item, stash.fileName, "shared-stash", `${stash.fileName} materials ${index + 1}`),
       );
       valuedItems.push(...materialValuations);
+      collectWarnings(materialValuations, valuationWarnings, unmatchedItems);
     }
   }
 
@@ -604,6 +635,12 @@ export const buildGatewayReport = async (saveDir) => {
       .slice(0, 12),
     allValuedItems: valuedItems.sort((left, right) => right.valueHr - left.valueHr),
     unmatchedItems,
+    valuationWarnings: {
+      totalCount: valuationWarnings.length,
+      unresolvedCount: valuationWarnings.filter((warning) => warning.kind === "unresolved").length,
+      ambiguousCount: valuationWarnings.filter((warning) => warning.kind === "ambiguous").length,
+      items: valuationWarnings,
+    },
     snapshot: {
       importedAt,
       totalHr,

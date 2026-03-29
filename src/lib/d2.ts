@@ -85,9 +85,16 @@ const derivedValueSource = (label: string, detail?: string): ValueSource => ({
   detail: detail ?? null,
 });
 
-const unresolvedValueSource = (): ValueSource => ({
+const unresolvedValueSource = (detail?: string): ValueSource => ({
   type: "unresolved",
   label: "Unresolved Market Value",
+  detail: detail ?? null,
+});
+
+const ambiguousValueSource = (detail?: string): ValueSource => ({
+  type: "ambiguous",
+  label: "Low-Confidence Market Value",
+  detail: detail ?? null,
 });
 
 const isRotwEnvironment = (names: string[]) => {
@@ -196,7 +203,66 @@ const matchTokenValue = (item: D2Item) => {
   return null;
 };
 
+const isLowConfidenceStoredAccessory = (item: D2Item, location: ItemLocation) => {
+  if (location === "equipped") {
+    return false;
+  }
+
+  return new Set(["amu", "rin", "jew", "cm1", "cm2", "cm3"]).has(item.type ?? "");
+};
+
+const isSuspiciousParsedItem = (item: D2Item) => {
+  const type = String(item.type ?? "");
+  return !/^[a-z0-9]{3}$/i.test(type);
+};
+
+const toWarningEntry = (item: ValuedItem) => ({
+  kind: (item.matchedBy === "ambiguous" ? "ambiguous" : "unresolved") as "ambiguous" | "unresolved",
+  owner: item.owner,
+  name: item.name,
+  location: item.location,
+  source: item.source,
+  valueSource: item.valueSource,
+  includedInTotal: false as const,
+});
+
+const collectWarnings = (
+  items: ValuedItem[],
+  valuationWarnings: WealthReport["valuationWarnings"]["items"],
+  unmatchedItems: WealthReport["unmatchedItems"],
+) => {
+  const warnings = items.filter((item) => item.matchedBy === "unmatched" || item.matchedBy === "ambiguous").map(toWarningEntry);
+  valuationWarnings.push(...warnings);
+  unmatchedItems.push(...warnings.filter((warning) => warning.kind === "unresolved"));
+};
+
 const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, source: string): ValuedItem => {
+  if (isLowConfidenceStoredAccessory(item, location)) {
+    return {
+      id: `${owner}-${source}-${displayName(item)}`,
+      name: displayName(item),
+      owner,
+      location,
+      source,
+      valueHr: 0,
+      matchedBy: "ambiguous",
+      valueSource: ambiguousValueSource("Stored accessory pricing needs affix-aware matching before it can affect HR totals."),
+    };
+  }
+
+  if (location !== "equipped" && isSuspiciousParsedItem(item)) {
+    return {
+      id: `${owner}-${source}-${displayName(item)}`,
+      name: displayName(item),
+      owner,
+      location,
+      source,
+      valueHr: 0,
+      matchedBy: "ambiguous",
+      valueSource: ambiguousValueSource("Parsed item data looked suspicious, so it was excluded from trust-critical totals."),
+    };
+  }
+
   const resolvedRuneword = lookupRunewordName(item);
   if (resolvedRuneword && runewordRecipes[resolvedRuneword]) {
     const recipe = runewordRecipes[resolvedRuneword];
@@ -267,7 +333,7 @@ const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, sourc
     source,
     valueHr: 0,
     matchedBy: "unmatched",
-    valueSource: unresolvedValueSource(),
+    valueSource: unresolvedValueSource("No workbook, token, or derived pricing match was found for this item."),
   };
 };
 
@@ -308,6 +374,7 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
 
   const valuedItems: ValuedItem[] = [];
   const unmatchedItems: WealthReport["unmatchedItems"] = [];
+  const valuationWarnings: WealthReport["valuationWarnings"]["items"] = [];
   const runeCounts = new Map<string, { count: number; looseCount: number }>();
   const characterSummaries: WealthReport["characters"] = [];
 
@@ -331,11 +398,7 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
     ];
 
     valuedItems.push(...characterValues);
-    unmatchedItems.push(
-      ...characterValues
-        .filter((item) => item.matchedBy === "unmatched")
-        .map((item) => ({ owner: item.owner, name: item.name, location: item.location, source: item.source, valueSource: item.valueSource })),
-    );
+    collectWarnings(characterValues, valuationWarnings, unmatchedItems);
 
     characterSummaries.push({
       name: character.header.name,
@@ -359,11 +422,7 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
       );
 
       valuedItems.push(...valuations);
-      unmatchedItems.push(
-        ...valuations
-          .filter((item) => item.matchedBy === "unmatched")
-          .map((item) => ({ owner: item.owner, name: item.name, location: item.location, source: item.source, valueSource: item.valueSource })),
-      );
+      collectWarnings(valuations, valuationWarnings, unmatchedItems);
     }
   }
 
@@ -439,6 +498,12 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
       .slice(0, 12),
     allValuedItems: valuedItems.sort((left, right) => right.valueHr - left.valueHr),
     unmatchedItems,
+    valuationWarnings: {
+      totalCount: valuationWarnings.length,
+      unresolvedCount: valuationWarnings.filter((warning) => warning.kind === "unresolved").length,
+      ambiguousCount: valuationWarnings.filter((warning) => warning.kind === "ambiguous").length,
+      items: valuationWarnings,
+    },
     snapshot: {
       importedAt,
       totalHr,
