@@ -75,13 +75,13 @@
   "expectedReport": {
     "importedAt": "2026-03-29T16:00:00.000Z",
     "saveSetId": "15304a871e250089e79f0bbe06f82019b57c60c1fd2ec7cc0a8ef72b2ecbe8e7",
-    "totalHr": 3.125,
-    "runeHr": 3,
+    "totalHr": 4.125,
+    "runeHr": 4,
     "equippedHr": 0.0938,
     "inventoryHr": 0,
     "characterStashHr": 0.0313,
     "stashHr": 0.0313,
-    "sharedHr": 3,
+    "sharedHr": 4,
     "characters": [
       {
         "name": "FixtureSorc",
@@ -101,6 +101,16 @@
         "count": 2,
         "looseCount": 2,
         "totalHr": 2.5,
+        "valueSource": {
+          "type": "rune-market",
+          "label": "Live Rune Market"
+        }
+      },
+      {
+        "name": "Ber",
+        "count": 1,
+        "looseCount": 1,
+        "totalHr": 1,
         "valueSource": {
           "type": "rune-market",
           "label": "Live Rune Market"
@@ -148,6 +158,20 @@
         "location": "shared-stash",
         "source": "SharedStashSoftCoreV2.d2i materials 1",
         "valueHr": 2.5,
+        "matchedBy": "token",
+        "valueSource": {
+          "type": "rune-market",
+          "label": "Live Rune Market"
+        }
+      },
+      {
+        "id": "SharedStashSoftCoreV2.d2i-SharedStashSoftCoreV2.d2i materials 3-Ber Rune",
+        "name": "Ber Rune",
+        "quantity": 1,
+        "owner": "SharedStashSoftCoreV2.d2i",
+        "location": "shared-stash",
+        "source": "SharedStashSoftCoreV2.d2i materials 3",
+        "valueHr": 1,
         "matchedBy": "token",
         "valueSource": {
           "type": "rune-market",
@@ -257,13 +281,13 @@
     },
     "snapshot": {
       "importedAt": "2026-03-29T16:00:00.000Z",
-      "totalHr": 3.125,
-      "runeHr": 3,
+      "totalHr": 4.125,
+      "runeHr": 4,
       "equippedHr": 0.0938,
       "inventoryHr": 0,
       "characterStashHr": 0.0313,
       "stashHr": 0.0313,
-      "sharedHr": 3,
+      "sharedHr": 4,
       "characterCount": 1
     }
   }

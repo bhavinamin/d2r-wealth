@@ -19,6 +19,8 @@ type D2Item = {
   ethereal?: number;
   total_nr_of_sockets?: number;
   socketed_items?: D2Item[];
+  quantity?: number;
+  amount_in_shared_stash?: number;
 };
 
 type CharacterData = {
@@ -226,6 +228,42 @@ const toWarningEntry = (item: ValuedItem) => ({
   includedInTotal: false as const,
 });
 
+const isMaterialLikeToken = (item: D2Item) => {
+  const name = displayName(item);
+  const normalized = normalizeMarketName(name);
+  const type = String(item.type ?? "");
+  return (
+    /^r\d{2}$/i.test(type) ||
+    /^pk[123]$/i.test(type) ||
+    /^ce[hdbf]$/i.test(type) ||
+    /^xa\d$/i.test(type) ||
+    normalized.includes("rune") ||
+    normalized.includes("key of") ||
+    normalized.includes("essence") ||
+    normalized.includes("worldstone shard") ||
+    normalized.includes("jewel") ||
+    normalized.includes("topaz") ||
+    normalized.includes("emerald") ||
+    normalized.includes("sapphire") ||
+    normalized.includes("ruby") ||
+    normalized.includes("amethyst") ||
+    normalized.includes("skull")
+  );
+};
+
+const stackQuantity = (item: D2Item) => {
+  const inventoryQuantity = typeof item.quantity === "number" && item.quantity > 0 ? item.quantity : 1;
+  if (typeof item.amount_in_shared_stash !== "number") {
+    return inventoryQuantity;
+  }
+
+  if (isMaterialLikeToken(item)) {
+    return item.amount_in_shared_stash > 0 ? item.amount_in_shared_stash : inventoryQuantity;
+  }
+
+  return inventoryQuantity;
+};
+
 const collectWarnings = (
   items: ValuedItem[],
   valuationWarnings: WealthReport["valuationWarnings"]["items"],
@@ -237,10 +275,13 @@ const collectWarnings = (
 };
 
 const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, source: string): ValuedItem => {
+  const quantity = stackQuantity(item);
+
   if (isLowConfidenceStoredAccessory(item, location)) {
     return {
       id: `${owner}-${source}-${displayName(item)}`,
       name: displayName(item),
+      quantity,
       owner,
       location,
       source,
@@ -254,6 +295,7 @@ const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, sourc
     return {
       id: `${owner}-${source}-${displayName(item)}`,
       name: displayName(item),
+      quantity,
       owner,
       location,
       source,
@@ -270,6 +312,7 @@ const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, sourc
     return {
       id: `${owner}-${source}-${displayName(item)}`,
       name: resolvedRuneword,
+      quantity,
       owner,
       location,
       source,
@@ -284,10 +327,11 @@ const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, sourc
     return {
       id: `${owner}-${source}-${displayName(item)}`,
       name: displayName(item),
+      quantity,
       owner,
       location,
       source,
-      valueHr: tokenMatch.valueHr,
+      valueHr: tokenMatch.valueHr * quantity,
       matchedBy: "token",
       valueSource: tokenMatch.kind === "rune" ? liveRuneValueSource() : workbookValueSource("Workbook Token Market"),
     };
@@ -298,6 +342,7 @@ const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, sourc
     return {
       id: `${owner}-${source}-${displayName(item)}`,
       name: displayName(item),
+      quantity,
       owner,
       location,
       source,
@@ -316,6 +361,7 @@ const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, sourc
     return {
       id: `${owner}-${source}-${displayName(item)}`,
       name: displayName(item),
+      quantity,
       owner,
       location,
       source,
@@ -328,6 +374,7 @@ const evaluateItem = (item: D2Item, owner: string, location: ItemLocation, sourc
   return {
     id: `${owner}-${source}-${displayName(item)}`,
     name: displayName(item),
+    quantity,
     owner,
     location,
     source,
@@ -341,9 +388,13 @@ const gatherRuneCounts = (items: D2Item[], counts: Map<string, { count: number; 
   for (const item of items) {
     const token = matchTokenValue(item);
     if (token?.kind === "rune") {
+      const quantity = stackQuantity(item);
+      if (quantity <= 0) {
+        continue;
+      }
       const current = counts.get(token.name) ?? { count: 0, looseCount: 0 };
-      current.count += 1;
-      current.looseCount += looseOnly ? 1 : 0;
+      current.count += quantity;
+      current.looseCount += looseOnly ? quantity : 0;
       counts.set(token.name, current);
     }
 

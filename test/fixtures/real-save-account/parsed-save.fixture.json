@@ -770,6 +770,16 @@
           "equippedSlot": null
         },
         {
+          "name": "Gul Rune",
+          "type": "r25",
+          "baseName": "Gul Rune",
+          "location": "shared-stash",
+          "quantity": 1,
+          "x": 0,
+          "y": 0,
+          "equippedSlot": null
+        },
+        {
           "name": "Hel Rune",
           "type": "r15",
           "baseName": "Hel Rune",
@@ -846,6 +856,16 @@
           "location": "shared-stash",
           "quantity": 3,
           "x": 3,
+          "y": 0,
+          "equippedSlot": null
+        },
+        {
+          "name": "Lem Rune",
+          "type": "r20",
+          "baseName": "Lem Rune",
+          "location": "shared-stash",
+          "quantity": 1,
+          "x": 0,
           "y": 0,
           "equippedSlot": null
         },

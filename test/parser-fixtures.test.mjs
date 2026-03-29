@@ -604,7 +604,7 @@ test("account totals reconcile to equipped, inventory, stash, shared stash, and 
   assert.ok(report.runeSummary.every((entry) => entry.count > 0));
   assert.deepEqual(
     report.runeSummary.map((entry) => entry.name),
-    ["Jah", "Ist"],
+    ["Jah", "Ber", "Ist"],
   );
 });
 
@@ -793,4 +793,23 @@ test("pricing contract surfaces explicit source labels for rune, workbook, deriv
   assert.ok(unresolvedItem);
   assert.equal(unresolvedItem.valueSource.type, "unresolved");
   assert.equal(unresolvedItem.valueSource.label, "Unresolved Market Value");
+});
+
+test("loose runes keep a quantity of one when shared-stash counters are zero", () => {
+  const berRune = evaluateItem(
+    makeValueTestItem({
+      type: "r30",
+      type_name: "Ber Rune",
+      quantity: 0,
+      amount_in_shared_stash: 0,
+    }),
+    "ContractTester",
+    "inventory",
+    "ContractTester carry 99",
+  );
+
+  assert.equal(berRune.quantity, 1);
+  assert.equal(berRune.matchedBy, "token");
+  assert.equal(berRune.valueSource.type, "rune-market");
+  assert.equal(berRune.valueHr, marketData.runeValues.Ber);
 });

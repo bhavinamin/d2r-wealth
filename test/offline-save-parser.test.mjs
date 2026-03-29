@@ -22,7 +22,7 @@ test("real offline save fixtures parse character and shared stash data accuratel
   assert.equal(parsed.stashes.length, 1);
   assert.equal(parsed.stashes[0].kind, "shared");
   assert.equal(parsed.stashes[0].pages[0].items.length, 10);
-  assert.equal(parsed.stashes[0].materialItems.length, 47);
+  assert.equal(parsed.stashes[0].materialItems.length, 49);
 });
 
 test("real offline save fixture parsing stays deterministic across repeated runs", async () => {
