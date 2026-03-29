@@ -131,7 +131,8 @@ function Convert-ToSlug([string]$Value) {
 }
 
 function Find-OpenIssueByTitle([string]$Task) {
-    $issuesJson = gh issue list --state open --search "`"$Task`" in:title" --json number,title,url --limit 100
+    $searchQuery = "$Task in:title"
+    $issuesJson = gh issue list --state open --search $searchQuery --json number,title,url --limit 100
     $issues = @()
     if ($issuesJson) {
         $issues = $issuesJson | ConvertFrom-Json
