@@ -7,6 +7,7 @@ import { normalizeGatewaySettings, readGatewaySettings, writeGatewaySettings } f
 
 const ALLOWED_EXTENSIONS = new Set([".d2s", ".d2i", ".sss", ".cst"]);
 const CHANGE_DEBOUNCE_MS = 1500;
+const MAX_SYNC_LOG_ENTRIES = 25;
 
 export class GatewayService {
   constructor(options = {}) {
@@ -21,6 +22,8 @@ export class GatewayService {
     this.clients = new Set();
     this.lastBackendSyncAt = null;
     this.lastBackendSyncError = null;
+    this.lastSuccessfulAccountUpdateAt = null;
+    this.syncLog = [];
     this.syncInFlight = null;
     this.lastSaveValidation = {
       valid: false,
@@ -60,8 +63,19 @@ export class GatewayService {
       saveValidation: this.lastSaveValidation,
       lastBackendSyncAt: this.lastBackendSyncAt,
       lastBackendSyncError: this.lastBackendSyncError,
+      lastSuccessfulAccountUpdateAt: this.lastSuccessfulAccountUpdateAt,
+      syncLog: this.syncLog,
       watchedAt: new Date().toISOString(),
     };
+  }
+
+  recordSyncEvent(event) {
+    const entry = {
+      loggedAt: new Date().toISOString(),
+      ...event,
+    };
+    this.syncLog = [entry, ...this.syncLog].slice(0, MAX_SYNC_LOG_ENTRIES);
+    return entry;
   }
 
   async refreshSaveValidation() {
@@ -136,6 +150,16 @@ export class GatewayService {
       try {
         await this.refreshSaveValidation();
         const report = await this.buildReport();
+        this.recordSyncEvent({
+          scope: "gateway-sync",
+          event: "ingest-attempt",
+          outcome: "attempted",
+          backendUrl: this.settings.backendUrl,
+          clientId: this.settings.clientId,
+          accountId: this.settings.accountId || null,
+          importedAt: report.importedAt ?? null,
+          totalHr: report.totalHr ?? null,
+        });
         const response = await fetch(`${this.settings.backendUrl.replace(/\/+$/, "")}/api/ingest`, {
           method: "POST",
           headers: {
@@ -148,20 +172,75 @@ export class GatewayService {
           }),
         });
 
+        let responseBody = null;
+        try {
+          responseBody = await response.json();
+        } catch {
+        }
+
         if (!response.ok) {
+          const backendIngest = responseBody?.ingest ?? null;
+          this.recordSyncEvent({
+            scope: "gateway-sync",
+            event: "ingest-response",
+            outcome: "rejected",
+            backendUrl: this.settings.backendUrl,
+            clientId: this.settings.clientId,
+            accountId: backendIngest?.accountId ?? this.settings.accountId ?? null,
+            httpStatus: response.status,
+            reason: backendIngest?.reason ?? "backend_rejected_ingest",
+            error: responseBody?.error ?? `Backend ingest failed with ${response.status}`,
+            lastSuccessfulAccountUpdateAt:
+              backendIngest?.lastSuccessfulAccountUpdateAt ?? this.lastSuccessfulAccountUpdateAt,
+          });
           throw new Error(`Backend ingest failed with ${response.status}`);
         }
 
+        const backendIngest = responseBody?.ingest ?? null;
         this.lastBackendSyncAt = new Date().toISOString();
         this.lastBackendSyncError = null;
+        this.lastSuccessfulAccountUpdateAt =
+          backendIngest?.lastSuccessfulAccountUpdateAt ?? responseBody?.latest?.receivedAt ?? this.lastSuccessfulAccountUpdateAt;
+        this.recordSyncEvent({
+          scope: "gateway-sync",
+          event: "ingest-response",
+          outcome: "accepted",
+          backendUrl: this.settings.backendUrl,
+          clientId: this.settings.clientId,
+          accountId: backendIngest?.accountId ?? this.settings.accountId ?? null,
+          httpStatus: response.status,
+          reason: backendIngest?.reason ?? "ingest_recorded",
+          receivedAt: backendIngest?.receivedAt ?? responseBody?.latest?.receivedAt ?? null,
+          importedAt: backendIngest?.importedAt ?? report.importedAt ?? null,
+          totalHr: backendIngest?.totalHr ?? report.totalHr ?? null,
+          lastSuccessfulAccountUpdateAt: this.lastSuccessfulAccountUpdateAt,
+        });
         this.sendEvent("backend-sync", {
           syncedAt: this.lastBackendSyncAt,
           backendUrl: this.settings.backendUrl,
           clientId: this.settings.clientId,
+          lastSuccessfulAccountUpdateAt: this.lastSuccessfulAccountUpdateAt,
         });
         return report;
       } catch (error) {
         this.lastBackendSyncError = error instanceof Error ? error.message : "Backend sync failed.";
+        if (
+          !this.syncLog[0]
+          || this.syncLog[0].event !== "ingest-response"
+          || this.syncLog[0].outcome !== "rejected"
+        ) {
+          this.recordSyncEvent({
+            scope: "gateway-sync",
+            event: "ingest-response",
+            outcome: "rejected",
+            backendUrl: this.settings.backendUrl,
+            clientId: this.settings.clientId,
+            accountId: this.settings.accountId || null,
+            reason: "gateway_sync_failed",
+            error: this.lastBackendSyncError,
+            lastSuccessfulAccountUpdateAt: this.lastSuccessfulAccountUpdateAt,
+          });
+        }
         throw error;
       } finally {
         this.syncInFlight = null;

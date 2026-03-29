@@ -197,6 +197,12 @@ test("gateway sync covers token-based ingest, latest/history reads, and disconne
   assert.equal(firstIngest.totalHr, 12.5);
   assert.match(String(service.lastBackendSyncAt), /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(service.lastBackendSyncError, null);
+  assert.match(String(service.lastSuccessfulAccountUpdateAt), /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(service.syncLog[0].event, "ingest-response");
+  assert.equal(service.syncLog[0].outcome, "accepted");
+  assert.equal(service.syncLog[0].lastSuccessfulAccountUpdateAt, service.lastSuccessfulAccountUpdateAt);
+  assert.equal(service.syncLog[1].event, "ingest-attempt");
+  assert.equal(service.syncLog[1].outcome, "attempted");
   assert.deepEqual(ctx.db.readAccountClients(ctx.account.id).map((client) => client.clientId), ["desktop-alpha"]);
 
   report = createReport("B", 18.75, "2026-03-29T12:05:00.000Z");
@@ -213,6 +219,7 @@ test("gateway sync covers token-based ingest, latest/history reads, and disconne
   assert.equal(latestBody.clientId, "desktop-alpha");
   assert.equal(latestBody.report.totalHr, 18.75);
   assert.equal(latestBody.report.characters[0].name, "Sorc B");
+  assert.equal(latestBody.lastSuccessfulAccountUpdateAt, latestBody.receivedAt);
 
   const { response: historyResponse, body: historyBody } = await fetchJson(
     `${ctx.backendBaseUrl}/api/accounts/${encodeURIComponent(ctx.account.id)}/history`,
@@ -244,6 +251,13 @@ test("gateway sync covers token-based ingest, latest/history reads, and disconne
 
   await assert.rejects(service.syncToBackend(), /Backend ingest failed with 401/);
   assert.equal(service.lastBackendSyncError, "Backend ingest failed with 401");
+  assert.equal(service.syncLog[0].event, "ingest-response");
+  assert.equal(service.syncLog[0].outcome, "rejected");
+  assert.equal(service.syncLog[0].httpStatus, 401);
+  assert.equal(service.syncLog[0].reason, "invalid_gateway_token");
+  assert.equal(service.syncLog[0].lastSuccessfulAccountUpdateAt, latestBody.lastSuccessfulAccountUpdateAt);
+  assert.equal(service.syncLog[1].event, "ingest-attempt");
+  assert.equal(service.syncLog[1].outcome, "attempted");
 
   const { response: revokedIngestResponse, body: revokedIngestBody } = await fetchJson(`${ctx.backendBaseUrl}/api/ingest`, {
     method: "POST",
@@ -255,6 +269,8 @@ test("gateway sync covers token-based ingest, latest/history reads, and disconne
   });
   assert.equal(revokedIngestResponse.status, 401);
   assert.match(revokedIngestBody.error, /Valid gateway token required/);
+  assert.equal(revokedIngestBody.ingest.status, "rejected");
+  assert.equal(revokedIngestBody.ingest.reason, "invalid_gateway_token");
 
   const { response: loggedOutReadResponse, body: loggedOutReadBody } = await fetchJson(
     `${ctx.backendBaseUrl}/api/accounts/${encodeURIComponent(ctx.account.id)}/latest`,

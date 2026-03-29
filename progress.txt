@@ -41,3 +41,12 @@ VERIFY: .\\scripts\\verify.ps1
 FILES:
  - .github/workflows/ci.yml
 
+[2026-03-29 13:53:01 -04:00] TASK: Add structured sync logging for gateway ingest attempts, backend accept/reject outcomes, and last successful account update timestamps.
+ISSUE: #21 https://github.com/bhavinamin/d2r-wealth/issues/21
+BRANCH: task/21-add-structured-sync-logging-for-gateway-ingest-a
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - backend/server.mjs
+ - gateway/service.mjs
+ - test/backend-gateway.integration.test.mjs
+
