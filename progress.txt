@@ -34,3 +34,10 @@ VERIFY: .\\scripts\\verify.ps1
 FILES:
  - test/parser-fixtures.test.mjs
 
+[2026-03-29 13:48:33 -04:00] TASK: Add a CI workflow step that runs the new automated test suite in addition to the existing build.
+ISSUE: #17 https://github.com/bhavinamin/d2r-wealth/issues/17
+BRANCH: task/17-add-a-ci-workflow-step-that-runs-the-new-automat
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - .github/workflows/ci.yml
+
