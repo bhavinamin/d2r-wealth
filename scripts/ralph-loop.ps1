@@ -226,6 +226,17 @@ function Wait-ForDefaultBranchCi([string]$DefaultBranch, [int]$PollSeconds) {
     }
 }
 
+function Test-DefaultBranchReady([string]$RemoteName, [string]$DefaultBranch, [int]$PollSeconds) {
+    try {
+        Ensure-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $DefaultBranch
+        Wait-ForDefaultBranchCi -DefaultBranch $DefaultBranch -PollSeconds $PollSeconds
+        Ensure-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $DefaultBranch
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 function Invoke-LoggedPowerShellFile([string]$ScriptPath, [string[]]$Arguments, [string]$OutputFile) {
     $joinedArguments = if ($Arguments -and $Arguments.Count -gt 0) { $Arguments -join " " } else { "" }
     $command = "powershell -ExecutionPolicy Bypass -File `"$ScriptPath`" $joinedArguments".Trim()
@@ -500,6 +511,13 @@ $failedRunLog
 
         $changedPaths = @(Get-NewStatusPaths -BaselinePaths $baselinePaths)
         if ($changedPaths.Count -eq 0) {
+            if (Test-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $DefaultBranch -PollSeconds $PollSeconds) {
+                return [pscustomobject]@{
+                    resolved = $true
+                    diagnosis = "Default branch is already green; no additional repair diff was needed."
+                }
+            }
+
             return [pscustomobject]@{
                 resolved = $false
                 diagnosis = "Codex repair produced no file changes."
@@ -548,18 +566,24 @@ while ($loopCount -lt $MaxLoops) {
         Ensure-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $defaultBranch
         Wait-ForDefaultBranchCi -DefaultBranch $defaultBranch -PollSeconds $CiPollSeconds
         Ensure-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $defaultBranch
-    } catch {
-        $preflightFailureFile = [System.IO.Path]::GetTempFileName()
-        try {
-            Set-Content -LiteralPath $preflightFailureFile -Value $_.Exception.Message -Encoding UTF8
-            $repair = Invoke-RepairAttempt -RepoRoot $repoRoot -DefaultBranch $defaultBranch -RemoteName $RemoteName -FailureOutputFile $preflightFailureFile -Diagnosis $_.Exception.Message -PollSeconds $CiPollSeconds -MaxWaitMinutes $PrWaitMinutes
-        } finally {
-            if (Test-Path -LiteralPath $preflightFailureFile) {
-                Remove-Item -LiteralPath $preflightFailureFile -Force
+        } catch {
+            $preflightFailureFile = [System.IO.Path]::GetTempFileName()
+            try {
+                Set-Content -LiteralPath $preflightFailureFile -Value $_.Exception.Message -Encoding UTF8
+                $repair = Invoke-RepairAttempt -RepoRoot $repoRoot -DefaultBranch $defaultBranch -RemoteName $RemoteName -FailureOutputFile $preflightFailureFile -Diagnosis $_.Exception.Message -PollSeconds $CiPollSeconds -MaxWaitMinutes $PrWaitMinutes
+            } finally {
+                if (Test-Path -LiteralPath $preflightFailureFile) {
+                    Remove-Item -LiteralPath $preflightFailureFile -Force
+                }
             }
-        }
-        if (-not $repair.resolved) {
-            Send-GitHubNotification -Handle $NotificationHandle -Message @"
+            if (-not $repair.resolved -and (Test-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $defaultBranch -PollSeconds $CiPollSeconds)) {
+                $repair = [pscustomobject]@{
+                    resolved = $true
+                    diagnosis = "Default branch CI recovered while the repair path was evaluating."
+                }
+            }
+            if (-not $repair.resolved) {
+                Send-GitHubNotification -Handle $NotificationHandle -Message @"
 human attention is required for the autonomous Ralph loop.
 
 Loop:
