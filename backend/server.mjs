@@ -206,6 +206,15 @@ const bearerToken = (request) => {
   return header.startsWith("Bearer ") ? header.slice("Bearer ".length) : null;
 };
 
+const logSyncEvent = (event) => {
+  const level = event.outcome === "rejected" ? "warn" : "info";
+  console[level](JSON.stringify({
+    scope: "backend-sync",
+    loggedAt: new Date().toISOString(),
+    ...event,
+  }));
+};
+
 const exchangeDiscordCode = async (code) => {
   const payload = new URLSearchParams({
     client_id: DISCORD_CLIENT_ID,
@@ -347,22 +356,58 @@ export const createBackendServer = () => http.createServer(async (request, respo
   }
 
   if (url.pathname === "/api/ingest" && request.method === "POST") {
-    const tokenRow = validateGatewayToken(bearerToken(request));
+    const rawToken = bearerToken(request);
+    const tokenRow = validateGatewayToken(rawToken);
     if (!tokenRow) {
-      sendJson(request, response, 401, { error: "Valid gateway token required." });
+      const ingest = {
+        status: "rejected",
+        reason: "invalid_gateway_token",
+        httpStatus: 401,
+      };
+      logSyncEvent({
+        event: "ingest",
+        outcome: "rejected",
+        ...ingest,
+      });
+      sendJson(request, response, 401, { error: "Valid gateway token required.", ingest });
       return;
     }
 
     try {
       const payload = JSON.parse(await readBody(request));
       if (!payload.report) {
-        sendJson(request, response, 400, { error: "Missing report." });
+        const ingest = {
+          status: "rejected",
+          reason: "missing_report",
+          httpStatus: 400,
+          accountId: tokenRow.account_id,
+          clientId: String(payload.clientId ?? "gateway"),
+        };
+        logSyncEvent({
+          event: "ingest",
+          outcome: "rejected",
+          ...ingest,
+        });
+        sendJson(request, response, 400, { error: "Missing report.", ingest });
         return;
       }
 
       const accountId = String(payload.accountId ?? tokenRow.account_id);
       if (accountId !== tokenRow.account_id) {
-        sendJson(request, response, 403, { error: "Gateway token does not match target account." });
+        const ingest = {
+          status: "rejected",
+          reason: "account_mismatch",
+          httpStatus: 403,
+          accountId,
+          tokenAccountId: tokenRow.account_id,
+          clientId: String(payload.clientId ?? "gateway"),
+        };
+        logSyncEvent({
+          event: "ingest",
+          outcome: "rejected",
+          ...ingest,
+        });
+        sendJson(request, response, 403, { error: "Gateway token does not match target account.", ingest });
         return;
       }
 
@@ -374,9 +419,38 @@ export const createBackendServer = () => http.createServer(async (request, respo
         receivedAt: new Date().toISOString(),
       });
 
-      sendJson(request, response, 200, { ok: true, latest });
+      const ingest = {
+        status: "accepted",
+        reason: "ingest_recorded",
+        httpStatus: 200,
+        accountId,
+        clientId,
+        importedAt: payload.report.importedAt ?? null,
+        totalHr: payload.report.totalHr ?? null,
+        saveSetId: latest.saveSetId,
+        receivedAt: latest.receivedAt,
+        lastSuccessfulAccountUpdateAt: latest.receivedAt,
+      };
+      logSyncEvent({
+        event: "ingest",
+        outcome: "accepted",
+        ...ingest,
+      });
+      sendJson(request, response, 200, { ok: true, latest, ingest });
     } catch (error) {
-      sendJson(request, response, 400, { error: error instanceof Error ? error.message : "Invalid ingest payload." });
+      const ingest = {
+        status: "rejected",
+        reason: "invalid_ingest_payload",
+        httpStatus: 400,
+        accountId: tokenRow.account_id,
+      };
+      logSyncEvent({
+        event: "ingest",
+        outcome: "rejected",
+        error: error instanceof Error ? error.message : "Invalid ingest payload.",
+        ...ingest,
+      });
+      sendJson(request, response, 400, { error: error instanceof Error ? error.message : "Invalid ingest payload.", ingest });
     }
     return;
   }
@@ -547,6 +621,7 @@ export const createBackendServer = () => http.createServer(async (request, respo
         report: latest?.report ?? null,
         clientId: latest?.clientId ?? null,
         receivedAt: latest?.receivedAt ?? null,
+        lastSuccessfulAccountUpdateAt: latest?.receivedAt ?? null,
       });
       return;
     }
