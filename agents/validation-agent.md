@@ -23,5 +23,6 @@ Prove the parser and valuation logic are correct enough to trust for wealth tota
 - Unknown items are reported, not hidden.
 - Chart history points match the imported snapshot totals.
 - Build and smoke tests pass before any release candidate.
+- Gateway MSI release candidates are built locally before the GitHub release workflow is triggered.
 - Stackable stash placeholders with zero quantity do not surface as owned runes.
 - Suspicious shared-stash page junk does not leak into valued leaderboards.
