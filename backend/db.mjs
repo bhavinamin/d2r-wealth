@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS accounts (
   id TEXT PRIMARY KEY,
   owner_user_id TEXT NOT NULL,
+  save_set_id TEXT,
   name TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -124,6 +125,34 @@ CREATE TABLE IF NOT EXISTS gateway_clients (
   FOREIGN KEY (account_id) REFERENCES accounts(id)
 );
 
+CREATE TABLE IF NOT EXISTS account_parsed_characters (
+  account_id TEXT NOT NULL,
+  save_set_id TEXT,
+  file_name TEXT NOT NULL,
+  name TEXT NOT NULL,
+  class_name TEXT NOT NULL,
+  level INTEGER NOT NULL,
+  equipped_items_json TEXT NOT NULL,
+  inventory_items_json TEXT NOT NULL,
+  cube_items_json TEXT NOT NULL,
+  stash_items_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (account_id, file_name),
+  FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+
+CREATE TABLE IF NOT EXISTS account_parsed_stashes (
+  account_id TEXT NOT NULL,
+  save_set_id TEXT,
+  file_name TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  pages_json TEXT NOT NULL,
+  material_items_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (account_id, file_name),
+  FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+
 CREATE TABLE IF NOT EXISTS market_rune_values (
   rune_name TEXT PRIMARY KEY,
   value_hr REAL NOT NULL,
@@ -159,11 +188,188 @@ try {
 } catch {
 }
 
+try {
+  db.exec("ALTER TABLE accounts ADD COLUMN save_set_id TEXT");
+} catch {
+}
+
+db.exec(`
+CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_owner_save_set
+ON accounts(owner_user_id, save_set_id)
+WHERE save_set_id IS NOT NULL;
+`);
+
 const nowIso = () => new Date().toISOString();
 const randomId = (prefix) => `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
 const tokenHash = (token) => crypto.createHash("sha256").update(token).digest("hex");
 
 export const getDatabase = () => db;
+
+const defaultAccountName = (username) => `${username}'s Account`;
+
+const insertAccountMembership = ({ accountId, userId, role = "owner", createdAt }) => {
+  db.prepare("INSERT OR IGNORE INTO account_memberships (account_id, user_id, role, created_at) VALUES (?, ?, ?, ?)").run(
+    accountId,
+    userId,
+    role,
+    createdAt,
+  );
+};
+
+const readAccountRow = (accountId) => db.prepare("SELECT * FROM accounts WHERE id = ?").get(accountId);
+
+const createOwnedAccount = ({ userId, name, saveSetId = null, createdAt = nowIso() }) => {
+  const accountId = randomId("acct");
+  db.prepare("INSERT INTO accounts (id, owner_user_id, save_set_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(
+    accountId,
+    userId,
+    saveSetId,
+    name,
+    createdAt,
+    createdAt,
+  );
+  insertAccountMembership({ accountId, userId, createdAt });
+  return readAccountRow(accountId);
+};
+
+const deriveAccountName = ({ report, parsedSaveData, saveSetId }) => {
+  const parsedCharacters = Array.isArray(parsedSaveData?.characters) ? parsedSaveData.characters : [];
+  const reportCharacters = Array.isArray(report?.characters) ? report.characters : [];
+  const primaryCharacter = parsedCharacters[0] ?? reportCharacters[0] ?? null;
+
+  if (primaryCharacter?.name && parsedCharacters.length <= 1 && reportCharacters.length <= 1) {
+    return `${primaryCharacter.name}`;
+  }
+
+  if (primaryCharacter?.name) {
+    const extraCount = Math.max(parsedCharacters.length, reportCharacters.length, 1) - 1;
+    return extraCount > 0 ? `${primaryCharacter.name} +${extraCount}` : `${primaryCharacter.name}`;
+  }
+
+  return saveSetId ? `Save ${saveSetId.slice(0, 8)}` : "Synced Save";
+};
+
+const readOwnedAccountBySaveSet = (userId, saveSetId) =>
+  db
+    .prepare("SELECT * FROM accounts WHERE owner_user_id = ? AND save_set_id = ?")
+    .get(userId, saveSetId);
+
+const readAccountParsedData = (accountId) => ({
+  characters: db
+    .prepare(
+      `SELECT file_name, name, class_name, level, equipped_items_json, inventory_items_json, cube_items_json, stash_items_json
+       FROM account_parsed_characters
+       WHERE account_id = ?
+       ORDER BY file_name ASC`,
+    )
+    .all(accountId)
+    .map((row) => ({
+      fileName: row.file_name,
+      name: row.name,
+      className: row.class_name,
+      level: row.level,
+      equippedItems: JSON.parse(row.equipped_items_json),
+      inventoryItems: JSON.parse(row.inventory_items_json),
+      cubeItems: JSON.parse(row.cube_items_json),
+      stashItems: JSON.parse(row.stash_items_json),
+    })),
+  stashes: db
+    .prepare(
+      `SELECT file_name, kind, pages_json, material_items_json
+       FROM account_parsed_stashes
+       WHERE account_id = ?
+       ORDER BY file_name ASC`,
+    )
+    .all(accountId)
+    .map((row) => ({
+      fileName: row.file_name,
+      kind: row.kind,
+      pages: JSON.parse(row.pages_json),
+      materialItems: JSON.parse(row.material_items_json),
+    })),
+});
+
+const replaceAccountParsedData = ({ accountId, saveSetId, parsedSaveData, updatedAt }) => {
+  db.prepare("DELETE FROM account_parsed_characters WHERE account_id = ?").run(accountId);
+  db.prepare("DELETE FROM account_parsed_stashes WHERE account_id = ?").run(accountId);
+
+  if (!parsedSaveData) {
+    return;
+  }
+
+  const insertCharacter = db.prepare(
+    `INSERT INTO account_parsed_characters (
+      account_id, save_set_id, file_name, name, class_name, level,
+      equipped_items_json, inventory_items_json, cube_items_json, stash_items_json, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const insertStash = db.prepare(
+    `INSERT INTO account_parsed_stashes (
+      account_id, save_set_id, file_name, kind, pages_json, material_items_json, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+
+  for (const character of parsedSaveData.characters ?? []) {
+    insertCharacter.run(
+      accountId,
+      saveSetId,
+      character.fileName,
+      character.name,
+      character.className,
+      character.level,
+      JSON.stringify(character.equippedItems ?? []),
+      JSON.stringify(character.inventoryItems ?? []),
+      JSON.stringify(character.cubeItems ?? []),
+      JSON.stringify(character.stashItems ?? []),
+      updatedAt,
+    );
+  }
+
+  for (const stash of parsedSaveData.stashes ?? []) {
+    insertStash.run(
+      accountId,
+      saveSetId,
+      stash.fileName,
+      stash.kind,
+      JSON.stringify(stash.pages ?? []),
+      JSON.stringify(stash.materialItems ?? []),
+      updatedAt,
+    );
+  }
+};
+
+const resolveIngestAccount = ({ accountId, gatewayTokenId, report, parsedSaveData, receivedAt }) => {
+  const saveSetId = String(report?.saveSetId ?? "").trim() || null;
+  const tokenAccount = readAccountRow(accountId);
+  if (!tokenAccount || !saveSetId) {
+    return { accountId, saveSetId };
+  }
+
+  const nextName = deriveAccountName({ report, parsedSaveData, saveSetId });
+  if (!tokenAccount.save_set_id || tokenAccount.save_set_id === saveSetId) {
+    db.prepare("UPDATE accounts SET save_set_id = ?, name = ?, updated_at = ? WHERE id = ?").run(
+      saveSetId,
+      nextName,
+      receivedAt,
+      tokenAccount.id,
+    );
+    return { accountId: tokenAccount.id, saveSetId };
+  }
+
+  const existingAccount = readOwnedAccountBySaveSet(tokenAccount.owner_user_id, saveSetId);
+  const targetAccount = existingAccount
+    ?? createOwnedAccount({
+      userId: tokenAccount.owner_user_id,
+      name: nextName,
+      saveSetId,
+      createdAt: receivedAt,
+    });
+
+  db.prepare("UPDATE accounts SET name = ?, updated_at = ? WHERE id = ?").run(nextName, receivedAt, targetAccount.id);
+  db.prepare("UPDATE gateway_tokens SET account_id = ? WHERE id = ?").run(targetAccount.id, gatewayTokenId);
+  db.prepare("UPDATE gateway_pairings SET account_id = ? WHERE gateway_token_id = ?").run(targetAccount.id, gatewayTokenId);
+  return { accountId: targetAccount.id, saveSetId };
+};
 
 export const upsertDiscordUser = (discordProfile) => {
   const existing = db
@@ -201,20 +407,11 @@ export const upsertDiscordUser = (discordProfile) => {
     "INSERT INTO discord_identities (discord_user_id, user_id, username, global_name, avatar, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
   ).run(discordProfile.id, userId, discordProfile.username, discordProfile.global_name ?? null, discordProfile.avatar ?? null, timestamp, timestamp);
 
-  const accountId = randomId("acct");
-  db.prepare("INSERT INTO accounts (id, owner_user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
-    accountId,
+  createOwnedAccount({
     userId,
-    `${username}'s Account`,
-    timestamp,
-    timestamp,
-  );
-  db.prepare("INSERT INTO account_memberships (account_id, user_id, role, created_at) VALUES (?, ?, ?, ?)").run(
-    accountId,
-    userId,
-    "owner",
-    timestamp,
-  );
+    name: defaultAccountName(username),
+    createdAt: timestamp,
+  });
 
   return db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
 };
@@ -256,11 +453,11 @@ export const deleteSession = (sessionId) => {
 export const listAccountsForUser = (userId) =>
   db
     .prepare(
-      `SELECT accounts.id, accounts.name, account_memberships.role
+      `SELECT accounts.id, accounts.name, accounts.save_set_id, account_memberships.role
        FROM account_memberships
        JOIN accounts ON accounts.id = account_memberships.account_id
        WHERE account_memberships.user_id = ?
-       ORDER BY accounts.created_at ASC`,
+       ORDER BY accounts.updated_at DESC, accounts.created_at ASC`,
     )
     .all(userId);
 
@@ -443,30 +640,40 @@ export const validateGatewayToken = (rawToken) => {
   return row;
 };
 
-export const ingestAccountReport = ({ accountId, clientId, report, receivedAt }) => {
+export const ingestAccountReport = ({ accountId, gatewayTokenId, clientId, report, parsedSaveData, receivedAt }) => {
   const timestamp = receivedAt ?? nowIso();
   const historyId = randomId("hist");
-  const saveSetId = String(report.saveSetId ?? "").trim() || null;
+  let latestAccountId = accountId;
   const transaction = db.transaction(() => {
-    const existingLatest = db.prepare("SELECT save_set_id FROM account_latest WHERE account_id = ?").get(accountId);
+    const resolved = resolveIngestAccount({
+      accountId,
+      gatewayTokenId,
+      report,
+      parsedSaveData,
+      receivedAt: timestamp,
+    });
+    const saveSetId = resolved.saveSetId;
+    latestAccountId = resolved.accountId;
+
+    const existingLatest = db.prepare("SELECT save_set_id FROM account_latest WHERE account_id = ?").get(latestAccountId);
     const saveSetChanged =
       Boolean(saveSetId) &&
       Boolean(existingLatest) &&
       String(existingLatest.save_set_id ?? "") !== saveSetId;
 
     if (saveSetChanged) {
-      db.prepare("DELETE FROM account_history WHERE account_id = ?").run(accountId);
+      db.prepare("DELETE FROM account_history WHERE account_id = ?").run(latestAccountId);
     }
 
     db.prepare(
       "INSERT OR REPLACE INTO account_latest (account_id, client_id, received_at, save_set_id, report_json) VALUES (?, ?, ?, ?, ?)",
-    ).run(accountId, clientId, timestamp, saveSetId, JSON.stringify(report));
+    ).run(latestAccountId, clientId, timestamp, saveSetId, JSON.stringify(report));
 
     db.prepare(
       "INSERT INTO account_history (id, account_id, client_id, received_at, imported_at, save_set_id, total_hr, snapshot_json, report_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
       historyId,
-      accountId,
+      latestAccountId,
       clientId,
       timestamp,
       report.importedAt,
@@ -476,13 +683,24 @@ export const ingestAccountReport = ({ accountId, clientId, report, receivedAt })
       JSON.stringify(report),
     );
 
+    if (latestAccountId !== accountId) {
+      db.prepare("DELETE FROM gateway_clients WHERE account_id = ? AND client_id = ?").run(accountId, clientId);
+    }
+
     db.prepare(
       "INSERT OR REPLACE INTO gateway_clients (account_id, client_id, received_at, imported_at, total_hr) VALUES (?, ?, ?, ?, ?)",
-    ).run(accountId, clientId, timestamp, report.importedAt, report.totalHr);
+    ).run(latestAccountId, clientId, timestamp, report.importedAt, report.totalHr);
+
+    replaceAccountParsedData({
+      accountId: latestAccountId,
+      saveSetId,
+      parsedSaveData,
+      updatedAt: timestamp,
+    });
   });
 
   transaction();
-  return readAccountLatest(accountId);
+  return readAccountLatest(latestAccountId);
 };
 
 export const readAccountLatest = (accountId) => {
@@ -498,8 +716,11 @@ export const readAccountLatest = (accountId) => {
     receivedAt: row.received_at,
     saveSetId: row.save_set_id ?? null,
     report: JSON.parse(row.report_json),
+    parsedSaveData: readAccountParsedData(accountId),
   };
 };
+
+export const readLatestAccountParsedData = (accountId) => readAccountParsedData(accountId);
 
 export const readAccountHistory = (accountId) =>
   db

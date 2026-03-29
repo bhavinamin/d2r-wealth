@@ -416,8 +416,10 @@ export const createBackendServer = () => http.createServer(async (request, respo
       const clientId = String(payload.clientId ?? "gateway");
       const latest = ingestAccountReport({
         accountId,
+        gatewayTokenId: tokenRow.id,
         clientId,
         report: payload.report,
+        parsedSaveData: payload.parsedSaveData ?? null,
         receivedAt: new Date().toISOString(),
       });
 
@@ -425,7 +427,7 @@ export const createBackendServer = () => http.createServer(async (request, respo
         status: "accepted",
         reason: "ingest_recorded",
         httpStatus: 200,
-        accountId,
+        accountId: latest.accountId,
         clientId,
         importedAt: payload.report.importedAt ?? null,
         totalHr: payload.report.totalHr ?? null,
@@ -624,6 +626,7 @@ export const createBackendServer = () => http.createServer(async (request, respo
       sendJson(request, response, 200, {
         accountId,
         report: latest?.report ?? null,
+        parsedSaveData: latest?.parsedSaveData ?? null,
         clientId: latest?.clientId ?? null,
         receivedAt: latest?.receivedAt ?? null,
         lastSuccessfulAccountUpdateAt: latest?.receivedAt ?? null,
