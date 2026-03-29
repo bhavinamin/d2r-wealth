@@ -111,3 +111,14 @@ VERIFY: .\\scripts\\verify.ps1
 FILES:
  - test/parser-fixtures.test.mjs
 
+[2026-03-29 14:30:05 -04:00] TASK: Improve unresolved and ambiguous item reporting so unmatched or low-confidence values are visible in the account report instead of silently disappearing from trust-critical totals.
+ISSUE: #37 https://github.com/bhavinamin/d2r-wealth/issues/37
+BRANCH: task/37-improve-unresolved-and-ambiguous-item-reporting
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - gateway/report.mjs
+ - src/App.tsx
+ - src/lib/d2.ts
+ - src/lib/types.ts
+ - test/fixtures/parser-account.fixture.json
+
