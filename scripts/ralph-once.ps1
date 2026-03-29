@@ -153,6 +153,7 @@ Workflow contract:
 - Implement exactly this task on its own branch.
 - Run local verification before pushing.
 - Open a draft PR that references and closes this issue on merge.
+- Treat unresolved GitHub review findings as merge blockers; address code review feedback before a PR is merged.
 "@
 }
 
@@ -281,7 +282,8 @@ Execution contract:
 5. Add or update focused tests when the repo already has a relevant test harness; otherwise keep the change buildable and note any verification gaps.
 6. Do not create issues, switch branches, commit, push, open PRs, or update progress.txt; the wrapper script owns that workflow.
 7. $verificationLine
-8. If you need to add notes for the wrapper operator, write them to stdout at the end under a short heading named NOTES.
+8. If GitHub review findings already exist on the branch or PR, address them before considering the work ready for merge.
+9. If you need to add notes for the wrapper operator, write them to stdout at the end under a short heading named NOTES.
 
 Task selection rule used by the wrapper:
 - first unchecked markdown checkbox task in the PRD
@@ -394,6 +396,7 @@ function New-PrBody([int]$IssueNumber, [string]$Task, [string]$VerificationComma
 ## Tracking
 - Closes #$IssueNumber
 $verificationText
+- Merge rule: resolve GitHub review findings before merge
 "@
 }
 
@@ -408,6 +411,53 @@ function Ensure-DraftPr([string]$RemoteName, [string]$BaseBranch, [string]$Branc
     return [pscustomobject]@{
         url   = $prUrl
         title = $Title
+    }
+}
+
+function Get-PrReviewStatus([string]$BranchName) {
+    $prJson = gh pr view $BranchName --json url,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup,reviewRequests
+    $pr = $prJson | ConvertFrom-Json
+
+    $requestedReviewers = @()
+    if ($pr.reviewRequests) {
+        foreach ($reviewRequest in $pr.reviewRequests) {
+            if ($reviewRequest.login) {
+                $requestedReviewers += $reviewRequest.login
+            }
+            elseif ($reviewRequest.name) {
+                $requestedReviewers += $reviewRequest.name
+            }
+        }
+    }
+
+    $checksState = "not_reported"
+    if ($pr.statusCheckRollup) {
+        $states = @($pr.statusCheckRollup | ForEach-Object { $_.state } | Where-Object { $_ })
+        if ($states.Count -gt 0) {
+            if ($states -contains "FAILURE" -or $states -contains "ERROR") {
+                $checksState = "failing"
+            } elseif ($states -contains "PENDING" -or $states -contains "EXPECTED") {
+                $checksState = "pending"
+            } elseif ($states -contains "SUCCESS") {
+                $checksState = "passing"
+            } else {
+                $checksState = ($states | Select-Object -First 1)
+            }
+        }
+    }
+
+    $mergeBlockedByReview = $pr.reviewDecision -eq "CHANGES_REQUESTED" -or $requestedReviewers.Count -gt 0
+    $mergeBlockedByChecks = $checksState -eq "failing" -or $checksState -eq "pending"
+    $mergeReady = (-not $pr.isDraft) -and (-not $mergeBlockedByReview) -and (-not $mergeBlockedByChecks)
+
+    return [pscustomobject]@{
+        url = $pr.url
+        isDraft = [bool]$pr.isDraft
+        reviewDecision = [string]$pr.reviewDecision
+        mergeStateStatus = [string]$pr.mergeStateStatus
+        checksState = $checksState
+        requestedReviewers = ($requestedReviewers | Sort-Object -Unique)
+        mergeReady = $mergeReady
     }
 }
 
@@ -460,11 +510,19 @@ try {
     git push -u $RemoteName $branchName | Out-Null
 
     $pr = Ensure-DraftPr -RemoteName $RemoteName -BaseBranch $defaultBranch -BranchName $branchName -Title $commitMessage -IssueNumber $issue.number -Task $task -VerificationCommand $verificationToRun
+    $reviewStatus = Get-PrReviewStatus -BranchName $branchName
 
     Write-Host "Completed task: $task"
     Write-Host "Issue: #$($issue.number) $($issue.url)"
     Write-Host "Branch: $branchName"
     Write-Host "PR: $($pr.url)"
+    Write-Host "PR draft: $($reviewStatus.isDraft)"
+    Write-Host "PR review decision: $($reviewStatus.reviewDecision)"
+    Write-Host "PR checks: $($reviewStatus.checksState)"
+    if ($reviewStatus.requestedReviewers.Count -gt 0) {
+        Write-Host "PR pending reviewers: $($reviewStatus.requestedReviewers -join ', ')"
+    }
+    Write-Host "Merge ready: $($reviewStatus.mergeReady)"
 } finally {
     if (Test-Path -LiteralPath $tempPromptFile) {
         Remove-Item -LiteralPath $tempPromptFile -Force

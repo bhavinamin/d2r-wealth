@@ -31,3 +31,4 @@ Prove the parser and valuation logic are correct enough to trust for wealth tota
 - Validation work should be tracked through GitHub issues and reviewed in PRs, not landed ad hoc on `master`.
 - Run local verification before pushing code, using unit tests where available and at minimum the repo's existing smoke/build checks.
 - If CI coverage is missing for a validation-critical path, add or update a GitHub Action so PRs exercise that check.
+- Treat outstanding GitHub review findings as blockers that must be addressed before merge.
