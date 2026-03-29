@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "d2-wealth-integration-"));
@@ -362,6 +363,207 @@ test("gateway sync covers token-based ingest, latest/history reads, and disconne
   );
   assert.equal(loggedOutReadResponse.status, 401);
   assert.match(loggedOutReadBody.error, /Authentication required/);
+});
+
+test("gateway performs an initial sync on startup once a valid token and save folder are present", async (t) => {
+  const ctx = await loadIntegrationContext("startup");
+  t.after(ctx.close);
+
+  const pairing = await createPairing(ctx.backendBaseUrl, "desktop-startup");
+  await approvePairing(ctx.backendBaseUrl, pairing.pairingId, ctx.sessionCookie);
+
+  const { response: claimResponse, body: claimed } = await claimPairing(
+    ctx.backendBaseUrl,
+    pairing.pairingId,
+    pairing.pairingSecret,
+  );
+  assert.equal(claimResponse.status, 200);
+  assert.equal(claimed.status, "approved");
+
+  const saveDir = path.join(ctx.tempRoot, "startup-sync");
+  fs.mkdirSync(saveDir, { recursive: true });
+  fs.writeFileSync(path.join(saveDir, "hero.d2s"), "fixture", "utf8");
+
+  const service = new GatewayService({
+    settings: {
+      host: "127.0.0.1",
+      port: 0,
+      saveDir,
+      autoStart: false,
+      dashboardUrl: "http://127.0.0.1:4173",
+      backendUrl: ctx.backendBaseUrl,
+      accountId: ctx.account.id,
+      clientId: claimed.clientId,
+      syncToken: claimed.gatewayToken,
+    },
+  });
+  t.after(async () => {
+    await service.stop();
+  });
+
+  service.buildReport = async () => createReport("Startup", 14.25, "2026-03-29T12:10:00.000Z");
+
+  const started = await service.start();
+  assert.ok(["pending", "syncing", "synced"].includes(started.statusSummary.sync.state));
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const { response, body } = await fetchJson(
+      `${ctx.backendBaseUrl}/api/accounts/${encodeURIComponent(ctx.account.id)}/latest`,
+      {
+        headers: { Cookie: ctx.sessionCookie },
+      },
+    );
+    if (response.status === 200 && body?.report) {
+      assert.equal(body.report.totalHr, 14.25);
+      assert.equal(body.clientId, claimed.clientId);
+      assert.equal(service.status().statusSummary.sync.state, "synced");
+      return;
+    }
+    await delay(50);
+  }
+
+  assert.fail("Timed out waiting for startup sync to reach the backend.");
+});
+
+test("gateway debounces syncs for relevant save-file changes and ignores unrelated files", async () => {
+  const watchedSaveDir = path.join(tempRoot, "watch-debounce");
+  fs.mkdirSync(watchedSaveDir, { recursive: true });
+  fs.writeFileSync(path.join(watchedSaveDir, "hero.d2s"), "fixture", "utf8");
+
+  const service = new GatewayService({
+    settings: {
+      host: "127.0.0.1",
+      port: 3190,
+      saveDir: watchedSaveDir,
+      autoStart: false,
+      dashboardUrl: "http://127.0.0.1:4173",
+      backendUrl: "http://127.0.0.1:9999",
+      accountId: "account-watch",
+      clientId: "desktop-watch",
+      syncToken: "watch-token",
+    },
+    changeDebounceMs: 25,
+  });
+
+  let watchHandler = null;
+  let syncAttempts = 0;
+  const originalWatch = fs.watch;
+  service.refreshSaveValidation = async () => ({
+    valid: true,
+    message: "ok",
+    characterCount: 1,
+    checkedAt: new Date().toISOString(),
+    nextRetryAt: null,
+  });
+  service.syncToBackend = async () => {
+    syncAttempts += 1;
+  };
+
+  fs.watch = (_saveDir, _options, handler) => {
+    watchHandler = handler;
+    return {
+      close() {},
+    };
+  };
+
+  try {
+    service.startWatcher();
+    assert.ok(watchHandler);
+
+    watchHandler("rename", "notes.txt");
+    watchHandler("change", "hero.d2s");
+    watchHandler("change", "shared.sss");
+    watchHandler("change", "hero.d2s");
+    await delay(80);
+
+    assert.equal(syncAttempts, 1);
+  } finally {
+    service.stopWatcher();
+    fs.watch = originalWatch;
+  }
+});
+
+test("gateway schedules a safe retry after transient backend failures and recovers on the next attempt", async (t) => {
+  const saveDir = path.join(tempRoot, "retry-sync");
+  fs.mkdirSync(saveDir, { recursive: true });
+  fs.writeFileSync(path.join(saveDir, "hero.d2s"), "fixture", "utf8");
+
+  let ingestAttempts = 0;
+  const backend = createBackendServer();
+  const originalEmit = backend.emit.bind(backend);
+  backend.emit = function patchedEmit(eventName, request, response) {
+    if (eventName === "request" && request.url === "/api/ingest") {
+      ingestAttempts += 1;
+      if (ingestAttempts === 1) {
+        response.writeHead(503, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({
+          error: "Temporary outage",
+          ingest: {
+            status: "rejected",
+            reason: "temporary_unavailable",
+          },
+        }));
+        return true;
+      }
+    }
+    return originalEmit(eventName, request, response);
+  };
+
+  await new Promise((resolve) => backend.listen(0, "127.0.0.1", resolve));
+  const address = backend.address();
+  assert.ok(address && typeof address === "object");
+  t.after(async () => {
+    await new Promise((resolve, reject) => backend.close((error) => (error ? reject(error) : resolve())));
+  });
+
+  const ctx = await loadIntegrationContext("retry");
+  t.after(ctx.close);
+
+  const pairing = await createPairing(`http://127.0.0.1:${address.port}`, "desktop-retry");
+  await approvePairing(`http://127.0.0.1:${address.port}`, pairing.pairingId, ctx.sessionCookie);
+
+  const { response: claimResponse, body: claimed } = await claimPairing(
+    `http://127.0.0.1:${address.port}`,
+    pairing.pairingId,
+    pairing.pairingSecret,
+  );
+  assert.equal(claimResponse.status, 200);
+  assert.equal(claimed.status, "approved");
+
+  const service = new GatewayService({
+    settings: {
+      host: "127.0.0.1",
+      port: 3191,
+      saveDir,
+      autoStart: false,
+      dashboardUrl: "http://127.0.0.1:4173",
+      backendUrl: `http://127.0.0.1:${address.port}`,
+      accountId: ctx.account.id,
+      clientId: claimed.clientId,
+      syncToken: claimed.gatewayToken,
+    },
+    initialRetryDelayMs: 25,
+    maxRetryDelayMs: 25,
+  });
+  t.after(async () => {
+    await service.stop();
+  });
+
+  service.buildReport = async () => createReport("Retry", 22.5, "2026-03-29T12:15:00.000Z");
+
+  service.requestSync();
+
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (ingestAttempts >= 2 && service.lastBackendSyncError === null && service.lastSuccessfulAccountUpdateAt) {
+      assert.equal(service.status().statusSummary.sync.state, "synced");
+      assert.equal(service.syncLog[0].outcome, "accepted");
+      assert.ok(service.syncLog.some((entry) => entry.outcome === "rejected" && entry.httpStatus === 503));
+      return;
+    }
+    await delay(25);
+  }
+
+  assert.fail("Timed out waiting for retry sync recovery.");
 });
 
 test.after(() => {
