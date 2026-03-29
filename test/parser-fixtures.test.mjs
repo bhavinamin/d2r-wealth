@@ -145,7 +145,7 @@ const npcNames = [
   "nihlathak",
 ];
 
-const fixedImportedAt = fixture.reportImportedAt;
+let fixedImportedAt = fixture.reportImportedAt;
 const RealDate = Date;
 
 const createQuest = () => ({
@@ -357,6 +357,38 @@ const buildItem = (spec, targetVersion) => {
       return buildMaterialItem(spec, targetVersion, "pk2", "Key of Hate");
     case "key-of-terror":
       return buildMaterialItem(spec, targetVersion, "pk1", "Key of Terror");
+    case "enigma":
+      return {
+        ...baseItem({
+          type: "utp",
+          typeName: "Mage Plate",
+          quality: 2,
+          itemVersion: targetVersion > 0x61 ? "101" : "101",
+          x: spec.x,
+          y: spec.y,
+          location: spec.location,
+          equippedId: spec.equippedId ?? 0,
+        }),
+        socketed: 1,
+        given_runeword: 1,
+        runeword_id: 59,
+        runeword_name: "Enigma",
+        total_nr_of_sockets: 3,
+      };
+    case "stash-amulet":
+      return {
+        ...baseItem({
+          type: "amu",
+          typeName: "Amulet",
+          quality: 4,
+          itemVersion: targetVersion > 0x61 ? "101" : "101",
+          x: spec.x,
+          y: spec.y,
+          location: spec.location,
+          equippedId: spec.equippedId ?? 0,
+        }),
+        magic_prefix_name: "Shimmering",
+      };
     default:
       throw new Error(`Unsupported fixture item template: ${spec.template}`);
   }
@@ -381,8 +413,7 @@ const buildMaterialItem = (spec, targetVersion, type, typeName) => {
   return item;
 };
 
-const createCharacterFile = async (saveDir) => {
-  const character = fixture.character;
+const createCharacterFile = async (saveDir, character = fixture.character) => {
   const payload = {
     header: {
       identifier: "aa55aa55",
@@ -431,8 +462,7 @@ const createCharacterFile = async (saveDir) => {
   await fs.writeFile(path.join(saveDir, character.fileName), Buffer.from(bytes));
 };
 
-const createSharedStashFile = async (saveDir) => {
-  const stash = fixture.sharedStash;
+const createSharedStashFile = async (saveDir, stash = fixture.sharedStash) => {
   const payload = {
     version: "105",
     type: 0,
@@ -478,16 +508,29 @@ const withFixedDate = async (fn) => {
   }
 };
 
-const buildFixtureReport = async () => {
+const buildScenarioReport = async ({
+  accountDirName = fixture.accountDirName,
+  importedAt = fixture.reportImportedAt,
+  character = fixture.character,
+  sharedStash = fixture.sharedStash,
+}) => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "d2-wealth-parser-fixtures-"));
-  const saveDir = path.join(tempRoot, fixture.accountDirName);
+  const saveDir = path.join(tempRoot, accountDirName);
   await fs.mkdir(saveDir, { recursive: true });
 
-  await createCharacterFile(saveDir);
-  await createSharedStashFile(saveDir);
+  await createCharacterFile(saveDir, character);
+  await createSharedStashFile(saveDir, sharedStash);
 
-  return withFixedDate(() => buildGatewayReport(saveDir));
+  const previousFixedImportedAt = fixedImportedAt;
+  fixedImportedAt = importedAt;
+  try {
+    return await withFixedDate(() => buildGatewayReport(saveDir));
+  } finally {
+    fixedImportedAt = previousFixedImportedAt;
+  }
 };
+
+const buildFixtureReport = async () => buildScenarioReport({});
 
 const roundHr = (value) => Number(value.toFixed(4));
 
@@ -535,4 +578,91 @@ test("account totals reconcile to equipped, stash, shared stash, and rune-derive
     report.runeSummary.map((entry) => entry.name),
     ["Jah", "Ist"],
   );
+});
+
+test("pricing contract surfaces explicit source labels for rune, workbook, derived recipe, and unresolved values", async () => {
+  const report = await buildScenarioReport({
+    accountDirName: "pricing-source-contract",
+    importedAt: "2026-03-29T17:00:00.000Z",
+    character: {
+      fileName: "PricingContract.d2s",
+      name: "PricingContract",
+      className: "Sorceress",
+      level: 90,
+      items: [
+        {
+          template: "enigma",
+          location: "equipped",
+          equippedId: 3,
+          x: 0,
+          y: 0,
+        },
+        {
+          template: "stash-amulet",
+          location: "character-stash",
+          x: 2,
+          y: 0,
+        },
+      ],
+    },
+    sharedStash: {
+      fileName: "SharedStashSoftCoreV2.d2i",
+      pages: [
+        {
+          name: "Contract",
+          isStackable: 0,
+          items: [
+            {
+              template: "harlequin-crest",
+              location: "shared-stash",
+              x: 0,
+              y: 0,
+            },
+          ],
+        },
+        {
+          name: "Materials",
+          isStackable: 1,
+          items: [
+            {
+              template: "ist-rune",
+              location: "shared-stash",
+              x: 1,
+              y: 0,
+              stackAmount: 2,
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  const derivedItem = report.allValuedItems.find((item) => item.name === "Enigma");
+  const workbookItem = report.allValuedItems.find((item) => item.name === "Harlequin Crest");
+  const runeItem = report.allValuedItems.find((item) => item.name === "Ist Rune");
+  const unresolvedItem = report.allValuedItems.find((item) => item.valueSource.type === "unresolved");
+  const unresolvedSummary = report.unmatchedItems.find((item) => item.valueSource.type === "unresolved");
+
+  assert.ok(derivedItem);
+  assert.equal(derivedItem.valueSource.type, "derived");
+  assert.equal(derivedItem.valueSource.label, "Derived Runeword Recipe");
+  assert.match(derivedItem.valueSource.detail ?? "", /Enigma = Jah \+ Ith \+ Ber/);
+
+  assert.ok(workbookItem);
+  assert.equal(workbookItem.valueSource.type, "workbook");
+  assert.equal(workbookItem.valueSource.label, "Workbook: UniqueSet Market");
+  assert.equal(workbookItem.valueSource.sheet, "UniqueSet Market");
+
+  assert.ok(runeItem);
+  assert.equal(runeItem.valueSource.type, "rune-market");
+  assert.equal(runeItem.valueSource.label, "Live Rune Market");
+  assert.ok(report.runeSummary.every((entry) => entry.valueSource.type === "rune-market"));
+
+  assert.ok(unresolvedItem);
+  assert.equal(unresolvedItem.valueSource.type, "unresolved");
+  assert.equal(unresolvedItem.valueSource.label, "Unresolved Market Value");
+
+  assert.ok(unresolvedSummary);
+  assert.equal(unresolvedSummary.valueSource.type, "unresolved");
+  assert.equal(unresolvedSummary.valueSource.label, "Unresolved Market Value");
 });

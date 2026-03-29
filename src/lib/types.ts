@@ -6,6 +6,14 @@ export type MarketData = {
   entries: Array<{ name: string; normalizedName: string; valueHr: number; sheet: string; basis: string; tradeLabel?: string | null }>;
 };
 
+export type ValueSource = {
+  type: "rune-market" | "workbook" | "derived" | "unresolved";
+  label: string;
+  sheet?: string;
+  basis?: string | null;
+  detail?: string | null;
+};
+
 export type ItemLocation =
   | "equipped"
   | "inventory"
@@ -26,6 +34,7 @@ export type ValuedItem = {
   valueHr: number;
   tradeValue?: string | null;
   matchedBy: "exact" | "token" | "socketed" | "unmatched";
+  valueSource: ValueSource;
 };
 
 export type RuneSummary = {
@@ -33,6 +42,7 @@ export type RuneSummary = {
   count: number;
   looseCount: number;
   totalHr: number;
+  valueSource: ValueSource;
 };
 
 export type WealthSnapshot = {
@@ -66,6 +76,6 @@ export type WealthReport = {
   topInventory: ValuedItem[];
   topSharedStash: ValuedItem[];
   allValuedItems: ValuedItem[];
-  unmatchedItems: Array<{ owner: string; name: string; location: ItemLocation }>;
+  unmatchedItems: Array<{ owner: string; name: string; location: ItemLocation; source?: string; valueSource: ValueSource }>;
   snapshot: WealthSnapshot;
 };
