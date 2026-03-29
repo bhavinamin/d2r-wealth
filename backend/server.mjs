@@ -1,5 +1,7 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { URL } from "node:url";
 import {
@@ -662,7 +664,22 @@ export const startBackendServer = (options = {}) => {
   });
 };
 
-const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMainModule = (() => {
+  if (!process.argv[1]) {
+    return false;
+  }
+
+  // Deployments invoke the service through a symlinked "current" path.
+  // Resolve both paths so direct and symlinked execution are treated the same.
+  const modulePath = fileURLToPath(import.meta.url);
+  const entryPath = process.argv[1];
+
+  try {
+    return fs.realpathSync(modulePath) === fs.realpathSync(entryPath);
+  } catch {
+    return path.resolve(modulePath) === path.resolve(entryPath);
+  }
+})();
 
 if (isMainModule) {
   const server = await startBackendServer();
