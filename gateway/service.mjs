@@ -8,6 +8,15 @@ import { normalizeGatewaySettings, readGatewaySettings, writeGatewaySettings } f
 const ALLOWED_EXTENSIONS = new Set([".d2s", ".d2i", ".sss", ".cst"]);
 const CHANGE_DEBOUNCE_MS = 1500;
 const MAX_SYNC_LOG_ENTRIES = 25;
+const RETRYABLE_HTTP_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const INITIAL_RETRY_DELAY_MS = 5000;
+const MAX_RETRY_DELAY_MS = 30000;
+
+const toErrorMessage = (error, fallback) => (error instanceof Error ? error.message : fallback);
+
+const isRetryableSyncFailure = (error) =>
+  Boolean(error?.retryable)
+  || (typeof error?.httpStatus === "number" && RETRYABLE_HTTP_STATUS_CODES.has(error.httpStatus));
 
 const deriveGatewayStatusSummary = ({
   saveValidation,
@@ -80,7 +89,9 @@ const deriveGatewayStatusSummary = ({
     sync = {
       state: "error",
       label: "Error",
-      detail: lastBackendSyncError,
+      detail: saveValidation?.nextRetryAt
+        ? `${lastBackendSyncError} Retrying at ${saveValidation.nextRetryAt}.`
+        : lastBackendSyncError,
     };
   } else if (lastBackendSyncAt) {
     sync = {
@@ -135,6 +146,13 @@ export class GatewayService {
     this.watcher = null;
     this.changeTimer = null;
     this.pendingChanges = new Set();
+    this.nextRetryTimer = null;
+    this.pendingSyncRequested = false;
+    this.retryAttemptCount = 0;
+    this.nextRetryAt = null;
+    this.changeDebounceMs = options.changeDebounceMs ?? CHANGE_DEBOUNCE_MS;
+    this.initialRetryDelayMs = options.initialRetryDelayMs ?? INITIAL_RETRY_DELAY_MS;
+    this.maxRetryDelayMs = options.maxRetryDelayMs ?? MAX_RETRY_DELAY_MS;
     this.clients = new Set();
     this.lastBackendSyncAt = null;
     this.lastBackendSyncError = null;
@@ -146,6 +164,7 @@ export class GatewayService {
       message: "Waiting for save scan.",
       characterCount: 0,
       checkedAt: null,
+      nextRetryAt: null,
     };
   }
 
@@ -214,6 +233,7 @@ export class GatewayService {
           message: "Selected folder does not exist.",
           characterCount: 0,
           checkedAt,
+          nextRetryAt: this.nextRetryAt,
         };
         return this.lastSaveValidation;
       }
@@ -226,6 +246,7 @@ export class GatewayService {
           message: "No .d2s character save was found in this folder.",
           characterCount: 0,
           checkedAt,
+          nextRetryAt: this.nextRetryAt,
         };
         return this.lastSaveValidation;
       }
@@ -239,6 +260,7 @@ export class GatewayService {
           message: "Character save files were found, but none could be parsed.",
           characterCount: 0,
           checkedAt,
+          nextRetryAt: this.nextRetryAt,
         };
         return this.lastSaveValidation;
       }
@@ -251,17 +273,57 @@ export class GatewayService {
             : `Validated ${characterCount} character saves in this folder.`,
         characterCount,
         checkedAt,
+        nextRetryAt: this.nextRetryAt,
       };
       return this.lastSaveValidation;
     } catch (error) {
       this.lastSaveValidation = {
         valid: false,
-        message: error instanceof Error ? `Save validation failed: ${error.message}` : "Save validation failed.",
+        message: toErrorMessage(error, "Save validation failed."),
         characterCount: 0,
         checkedAt,
+        nextRetryAt: this.nextRetryAt,
       };
       return this.lastSaveValidation;
     }
+  }
+
+  clearRetrySchedule() {
+    if (this.nextRetryTimer) {
+      clearTimeout(this.nextRetryTimer);
+      this.nextRetryTimer = null;
+    }
+    this.retryAttemptCount = 0;
+    this.nextRetryAt = null;
+  }
+
+  scheduleRetry() {
+    if (this.nextRetryTimer || !this.settings.backendUrl || !this.settings.syncToken) {
+      return;
+    }
+
+    const delayMs = Math.min(this.initialRetryDelayMs * (2 ** this.retryAttemptCount), this.maxRetryDelayMs);
+    this.retryAttemptCount += 1;
+    this.nextRetryAt = new Date(Date.now() + delayMs).toISOString();
+    void this.refreshSaveValidation().catch(() => {});
+    this.nextRetryTimer = setTimeout(() => {
+      this.nextRetryTimer = null;
+      this.nextRetryAt = null;
+      this.requestSync();
+    }, delayMs);
+  }
+
+  requestSync() {
+    if (!this.settings.backendUrl || !this.settings.syncToken) {
+      return;
+    }
+
+    if (this.syncInFlight) {
+      this.pendingSyncRequested = true;
+      return;
+    }
+
+    void this.syncToBackend().catch(() => {});
   }
 
   async syncToBackend() {
@@ -276,6 +338,9 @@ export class GatewayService {
     this.syncInFlight = (async () => {
       try {
         await this.refreshSaveValidation();
+        if (!this.lastSaveValidation.valid) {
+          throw new Error(this.lastSaveValidation.message);
+        }
         const report = await this.buildReport();
         this.recordSyncEvent({
           scope: "gateway-sync",
@@ -307,6 +372,9 @@ export class GatewayService {
 
         if (!response.ok) {
           const backendIngest = responseBody?.ingest ?? null;
+          const error = new Error(`Backend ingest failed with ${response.status}`);
+          error.httpStatus = response.status;
+          error.retryable = RETRYABLE_HTTP_STATUS_CODES.has(response.status);
           this.recordSyncEvent({
             scope: "gateway-sync",
             event: "ingest-response",
@@ -320,12 +388,13 @@ export class GatewayService {
             lastSuccessfulAccountUpdateAt:
               backendIngest?.lastSuccessfulAccountUpdateAt ?? this.lastSuccessfulAccountUpdateAt,
           });
-          throw new Error(`Backend ingest failed with ${response.status}`);
+          throw error;
         }
 
         const backendIngest = responseBody?.ingest ?? null;
         this.lastBackendSyncAt = new Date().toISOString();
         this.lastBackendSyncError = null;
+        this.clearRetrySchedule();
         this.lastSuccessfulAccountUpdateAt =
           backendIngest?.lastSuccessfulAccountUpdateAt ?? responseBody?.latest?.receivedAt ?? this.lastSuccessfulAccountUpdateAt;
         this.recordSyncEvent({
@@ -350,7 +419,7 @@ export class GatewayService {
         });
         return report;
       } catch (error) {
-        this.lastBackendSyncError = error instanceof Error ? error.message : "Backend sync failed.";
+        this.lastBackendSyncError = toErrorMessage(error, "Backend sync failed.");
         if (
           !this.syncLog[0]
           || this.syncLog[0].event !== "ingest-response"
@@ -368,9 +437,18 @@ export class GatewayService {
             lastSuccessfulAccountUpdateAt: this.lastSuccessfulAccountUpdateAt,
           });
         }
+        if (isRetryableSyncFailure(error)) {
+          this.scheduleRetry();
+        } else {
+          this.clearRetrySchedule();
+        }
         throw error;
       } finally {
         this.syncInFlight = null;
+        if (this.pendingSyncRequested) {
+          this.pendingSyncRequested = false;
+          this.requestSync();
+        }
       }
     })();
 
@@ -430,8 +508,8 @@ export class GatewayService {
             this.sendEvent("settings-changed", this.status());
           })
           .catch(() => {});
-        void this.syncToBackend().catch(() => {});
-      }, CHANGE_DEBOUNCE_MS);
+        this.requestSync();
+      }, this.changeDebounceMs);
     });
   }
 
@@ -441,7 +519,15 @@ export class GatewayService {
       this.changeTimer = null;
     }
 
+    if (this.nextRetryTimer) {
+      clearTimeout(this.nextRetryTimer);
+      this.nextRetryTimer = null;
+    }
+
     this.pendingChanges.clear();
+    this.pendingSyncRequested = false;
+    this.nextRetryAt = null;
+    this.retryAttemptCount = 0;
 
     if (this.watcher) {
       this.watcher.close();
@@ -470,7 +556,9 @@ export class GatewayService {
     }
 
     if (merged.syncToken) {
-      void this.syncToBackend().catch(() => {});
+      this.requestSync();
+    } else {
+      this.clearRetrySchedule();
     }
 
     return this.settings;
@@ -621,7 +709,7 @@ export class GatewayService {
 
     this.startWatcher();
     await this.refreshSaveValidation();
-    void this.syncToBackend().catch(() => {});
+    this.requestSync();
     return this.status();
   }
 

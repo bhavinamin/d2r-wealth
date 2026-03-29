@@ -69,3 +69,11 @@ FILES:
  - gateway/settings.html
  - test/backend-gateway.integration.test.mjs
 
+[2026-03-29 14:06:32 -04:00] TASK: Ensure the gateway performs an initial sync on startup, a debounced sync on relevant file changes, and a safe retry path after transient backend failures.
+ISSUE: #27 https://github.com/bhavinamin/d2r-wealth/issues/27
+BRANCH: task/27-ensure-the-gateway-performs-an-initial-sync-on-s
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - gateway/service.mjs
+ - test/backend-gateway.integration.test.mjs
+
