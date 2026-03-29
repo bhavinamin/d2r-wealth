@@ -60,3 +60,12 @@ FILES:
  - gateway/tray.mjs
  - test/backend-gateway.integration.test.mjs
 
+[2026-03-29 14:01:20 -04:00] TASK: Make gateway status reporting explicit for save validation, pairing state, sync state, and last error so users can tell why the dashboard is stale.
+ISSUE: #25 https://github.com/bhavinamin/d2r-wealth/issues/25
+BRANCH: task/25-make-gateway-status-reporting-explicit-for-save
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - gateway/service.mjs
+ - gateway/settings.html
+ - test/backend-gateway.integration.test.mjs
+

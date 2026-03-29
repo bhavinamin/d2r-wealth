@@ -9,6 +9,122 @@ const ALLOWED_EXTENSIONS = new Set([".d2s", ".d2i", ".sss", ".cst"]);
 const CHANGE_DEBOUNCE_MS = 1500;
 const MAX_SYNC_LOG_ENTRIES = 25;
 
+const deriveGatewayStatusSummary = ({
+  saveValidation,
+  syncToken,
+  lastBackendSyncAt,
+  lastBackendSyncError,
+  lastSuccessfulAccountUpdateAt,
+  syncInFlight,
+}) => {
+  const saveChecked = Boolean(saveValidation?.checkedAt);
+  const saveValid = Boolean(saveValidation?.valid);
+  const saveMessage = saveValidation?.message ?? "Waiting for save scan.";
+
+  const save = saveChecked
+    ? saveValid
+      ? {
+          state: "ready",
+          label: "Ready",
+          detail: saveMessage,
+        }
+      : {
+          state: "attention",
+          label: "Needs Attention",
+          detail: saveMessage,
+        }
+    : {
+        state: "checking",
+        label: "Checking",
+        detail: saveMessage,
+      };
+
+  const pairing = syncToken
+    ? {
+        state: "paired",
+        label: "Paired",
+        detail: "This PC has a gateway sync token and can upload account snapshots.",
+      }
+    : saveValid
+      ? {
+          state: "ready",
+          label: "Ready To Pair",
+          detail: "Discord sign-in can open now so you can approve pairing for this PC.",
+        }
+      : {
+          state: "blocked",
+          label: "Blocked",
+          detail: "Fix save validation before pairing this PC to your D2 Wealth account.",
+        };
+
+  let sync;
+  if (!syncToken) {
+    sync = {
+      state: "not-paired",
+      label: "Not Paired",
+      detail: "No gateway sync token is available yet, so uploads cannot start.",
+    };
+  } else if (syncInFlight) {
+    sync = {
+      state: "syncing",
+      label: "Syncing",
+      detail: "A gateway upload is in progress.",
+    };
+  } else if (!saveValid) {
+    sync = {
+      state: "blocked",
+      label: "Blocked",
+      detail: "Save validation is failing, so the dashboard will stay stale until this folder is fixed.",
+    };
+  } else if (lastBackendSyncError) {
+    sync = {
+      state: "error",
+      label: "Error",
+      detail: lastBackendSyncError,
+    };
+  } else if (lastBackendSyncAt) {
+    sync = {
+      state: "synced",
+      label: "Synced",
+      detail: `Last upload reached the backend at ${lastBackendSyncAt}.`,
+    };
+  } else {
+    sync = {
+      state: "pending",
+      label: "Pending First Sync",
+      detail: "Pairing is complete, but the first successful upload has not finished yet.",
+    };
+  }
+
+  const lastError = lastBackendSyncError
+    ? {
+        scope: "sync",
+        message: lastBackendSyncError,
+        occurredAt: lastBackendSyncAt ?? null,
+      }
+    : saveChecked && !saveValid
+      ? {
+          scope: "save-validation",
+          message: saveMessage,
+          occurredAt: saveValidation.checkedAt,
+        }
+      : null;
+
+  return {
+    save,
+    pairing,
+    sync,
+    lastError,
+    dashboardFreshness: {
+      state: lastSuccessfulAccountUpdateAt ? "fresh" : "stale",
+      label: lastSuccessfulAccountUpdateAt ? "Last Upload Recorded" : "No Successful Upload Yet",
+      detail: lastSuccessfulAccountUpdateAt
+        ? `Backend account data was last updated at ${lastSuccessfulAccountUpdateAt}.`
+        : "The backend does not have a successful upload from this gateway yet.",
+    },
+  };
+};
+
 export class GatewayService {
   constructor(options = {}) {
     this.settingsPath = options.settingsPath;
@@ -56,14 +172,25 @@ export class GatewayService {
   }
 
   status() {
+    const files = this.listSaveFiles();
+    const statusSummary = deriveGatewayStatusSummary({
+      saveValidation: this.lastSaveValidation,
+      syncToken: this.settings.syncToken,
+      lastBackendSyncAt: this.lastBackendSyncAt,
+      lastBackendSyncError: this.lastBackendSyncError,
+      lastSuccessfulAccountUpdateAt: this.lastSuccessfulAccountUpdateAt,
+      syncInFlight: Boolean(this.syncInFlight),
+    });
+
     return {
       ...this.settings,
       running: Boolean(this.server?.listening),
-      files: this.listSaveFiles(),
+      files,
       saveValidation: this.lastSaveValidation,
       lastBackendSyncAt: this.lastBackendSyncAt,
       lastBackendSyncError: this.lastBackendSyncError,
       lastSuccessfulAccountUpdateAt: this.lastSuccessfulAccountUpdateAt,
+      statusSummary,
       syncLog: this.syncLog,
       watchedAt: new Date().toISOString(),
     };

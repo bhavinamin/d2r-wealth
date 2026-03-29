@@ -90,6 +90,16 @@
         color: #89df9d;
       }
 
+      .state-pill.warning {
+        background: rgba(201, 137, 54, 0.22);
+        color: #f4d8a7;
+      }
+
+      .state-pill.error {
+        background: rgba(163, 51, 44, 0.22);
+        color: #ffb0a7;
+      }
+
       .state-pill.idle {
         background: rgba(255, 255, 255, 0.08);
         color: rgba(243, 237, 225, 0.78);
@@ -263,9 +273,15 @@
         margin-top: 5px;
         font-size: 0.9rem;
         color: #f4d8a7;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        line-height: 1.35;
+      }
+
+      .meta-card small {
+        display: block;
+        margin-top: 6px;
+        font-size: 0.76rem;
+        line-height: 1.4;
+        color: rgba(243, 237, 225, 0.68);
       }
 
       .grow {
@@ -365,16 +381,51 @@
       let autoStartDirty = false;
 
       const hasUnsavedChanges = () => saveDirDirty || autoStartDirty;
+      const defaultSaveValidation = { valid: false, message: "Choose a save folder." };
+      const fallbackStatusSummary = {
+        save: { state: "checking", label: "Checking", detail: "Waiting for save scan." },
+        pairing: { state: "blocked", label: "Blocked", detail: "Choose a valid save folder before pairing." },
+        sync: { state: "not-paired", label: "Not Paired", detail: "No gateway sync token is available yet." },
+        lastError: null,
+        dashboardFreshness: {
+          state: "stale",
+          label: "No Successful Upload Yet",
+          detail: "The backend does not have a successful upload from this gateway yet.",
+        },
+      };
+
+      const escapeHtml = (value) =>
+        String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+
+      const summarizeStatus = (status) => status.statusSummary ?? fallbackStatusSummary;
+
+      const pillClassForState = (state) => {
+        if (state === "synced" || state === "paired" || state === "ready" || state === "fresh") {
+          return "connected";
+        }
+        if (state === "error" || state === "attention") {
+          return "error";
+        }
+        if (state === "blocked" || state === "syncing" || state === "pending") {
+          return "warning";
+        }
+        return "idle";
+      };
 
       const setPairingMessage = (status, { unsavedChanges = hasUnsavedChanges() } = {}) => {
-        const linked = Boolean(status.syncToken);
-        const saveValidation = status.saveValidation ?? { valid: false, message: "Choose a save folder." };
-        const saveReady = Boolean(saveValidation.valid);
+        const summary = summarizeStatus(status);
+        const saveReady = summary.save.state === "ready";
+        const paired = summary.pairing.state === "paired";
 
-        if (linked && saveReady) {
+        if (paired && summary.sync.state === "synced") {
           return "This PC is linked to your D2 Wealth account. Leave the gateway running and it will keep syncing in the background.";
         }
-        if (linked) {
+        if (paired) {
           return "This PC is linked, but the save folder still needs attention before sync can recover.";
         }
         if (unsavedChanges) {
@@ -387,8 +438,9 @@
       };
 
       const renderSetupChecklist = (status, { unsavedChanges = hasUnsavedChanges() } = {}) => {
-        const linked = Boolean(status.syncToken);
-        const saveReady = Boolean(status.saveValidation?.valid);
+        const summary = summarizeStatus(status);
+        const paired = summary.pairing.state === "paired";
+        const saveReady = summary.save.state === "ready";
         for (const item of setupList.querySelectorAll("[data-step]")) {
           const step = item.getAttribute("data-step");
           let complete = false;
@@ -398,11 +450,11 @@
             complete = saveReady && !unsavedChanges;
             active = !complete;
           } else if (step === "auth") {
-            complete = linked;
+            complete = paired;
             active = !complete && saveReady && !unsavedChanges;
           } else if (step === "sync") {
-            complete = linked && Boolean(status.lastBackendSyncAt) && !status.lastBackendSyncError;
-            active = linked && !complete;
+            complete = summary.sync.state === "synced";
+            active = paired && !complete;
           }
 
           item.classList.toggle("is-complete", complete);
@@ -411,39 +463,55 @@
       };
 
       const renderStatus = (status) => {
-        const linked = Boolean(status.syncToken);
-        const syncConnected = Boolean(status.syncToken && status.lastBackendSyncAt && !status.lastBackendSyncError);
-        const saveValidation = status.saveValidation ?? { valid: false, message: "Choose a save folder." };
-        syncPill.textContent = syncConnected ? "Connected" : linked ? "Linked" : "Idle";
-        syncPill.className = `state-pill ${linked ? "connected" : "idle"}`;
+        const summary = summarizeStatus(status);
+        const paired = summary.pairing.state === "paired";
+        const saveValidation = status.saveValidation ?? defaultSaveValidation;
+        syncPill.textContent = summary.sync.label;
+        syncPill.className = `state-pill ${pillClassForState(summary.sync.state)}`;
 
         saveStatus.textContent = saveValidation.message ?? "Choose a save folder.";
         saveStatus.className = `save-status ${saveValidation.valid ? "valid" : "invalid"}`;
 
-        pairGateway.classList.toggle("hidden", linked);
-        linkedPanel.classList.toggle("hidden", !linked);
+        pairGateway.classList.toggle("hidden", paired);
+        linkedPanel.classList.toggle("hidden", !paired);
         disconnectGateway.classList.toggle("hidden", !status.syncToken);
         pairGateway.disabled = !saveValidation.valid || hasUnsavedChanges();
         pairCopy.style.color = "";
         pairCopy.textContent = setPairingMessage(status);
         renderSetupChecklist(status);
 
+        const lastErrorLabel = summary.lastError ? summary.lastError.scope : "clear";
+        const lastErrorMessage = summary.lastError?.message ?? "No recent blocking error.";
         statusGrid.innerHTML = `
           <article class="meta-card">
-            <span>Gateway</span>
-            <strong>${status.running ? "Running" : "Stopped"}</strong>
+            <span>Save Validation</span>
+            <strong>${escapeHtml(summary.save.label)}</strong>
+            <small>${escapeHtml(summary.save.detail)}</small>
           </article>
           <article class="meta-card">
-            <span>Sync</span>
-            <strong>${syncConnected ? "Connected" : linked ? "Linked" : "Not linked"}</strong>
+            <span>Pairing State</span>
+            <strong>${escapeHtml(summary.pairing.label)}</strong>
+            <small>${escapeHtml(summary.pairing.detail)}</small>
           </article>
           <article class="meta-card">
-            <span>Files Seen</span>
-            <strong>${status.files.length}</strong>
+            <span>Sync State</span>
+            <strong>${escapeHtml(summary.sync.label)}</strong>
+            <small>${escapeHtml(summary.sync.detail)}</small>
           </article>
           <article class="meta-card">
-            <span>Last Sync</span>
-            <strong>${status.lastBackendSyncAt ?? status.lastBackendSyncError ?? (linked ? "Pending first sync" : "Never")}</strong>
+            <span>Last Error</span>
+            <strong>${escapeHtml(lastErrorLabel)}</strong>
+            <small>${escapeHtml(lastErrorMessage)}</small>
+          </article>
+          <article class="meta-card">
+            <span>Last Account Update</span>
+            <strong>${escapeHtml(status.lastSuccessfulAccountUpdateAt ?? "Never")}</strong>
+            <small>${escapeHtml(summary.dashboardFreshness.detail)}</small>
+          </article>
+          <article class="meta-card">
+            <span>Gateway Runtime</span>
+            <strong>${escapeHtml(status.running ? "Running" : "Stopped")}</strong>
+            <small>${escapeHtml(`${status.files.length} tracked save file${status.files.length === 1 ? "" : "s"} in the selected folder.`)}</small>
           </article>
         `;
       };
@@ -461,12 +529,12 @@
 
       saveDir.addEventListener("input", () => {
         saveDirDirty = true;
-        renderStatus(window.__lastGatewayStatus ?? { saveValidation: { valid: false, message: "Choose a save folder." }, files: [] });
+        renderStatus(window.__lastGatewayStatus ?? { saveValidation: defaultSaveValidation, files: [] });
       });
 
       autoStart.addEventListener("change", () => {
         autoStartDirty = true;
-        renderStatus(window.__lastGatewayStatus ?? { saveValidation: { valid: false, message: "Choose a save folder." }, files: [] });
+        renderStatus(window.__lastGatewayStatus ?? { saveValidation: defaultSaveValidation, files: [] });
       });
 
       const persistPendingSettings = async () => {
@@ -495,7 +563,7 @@
         if (nextSaveDir) {
           saveDir.value = nextSaveDir;
           saveDirDirty = true;
-          renderStatus(window.__lastGatewayStatus ?? { saveValidation: { valid: false, message: "Choose a save folder." }, files: [] });
+          renderStatus(window.__lastGatewayStatus ?? { saveValidation: defaultSaveValidation, files: [] });
         }
       });
 
