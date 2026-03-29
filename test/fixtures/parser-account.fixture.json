@@ -8,9 +8,8 @@
     "level": 90,
     "items": [
       {
-        "template": "harlequin-crest",
-        "location": "equipped",
-        "equippedId": 1,
+        "template": "key-of-hatred",
+        "location": "character-stash",
         "x": 0,
         "y": 0
       }
@@ -24,7 +23,7 @@
         "isStackable": 0,
         "items": [
           {
-            "template": "harlequin-crest",
+            "template": "key-of-terror",
             "location": "shared-stash",
             "x": 0,
             "y": 0
@@ -63,19 +62,19 @@
   "expectedReport": {
     "importedAt": "2026-03-29T16:00:00.000Z",
     "saveSetId": "15304a871e250089e79f0bbe06f82019b57c60c1fd2ec7cc0a8ef72b2ecbe8e7",
-    "totalHr": 3.1875,
+    "totalHr": 3.0313,
     "runeHr": 3,
-    "equippedHr": 0.0938,
-    "stashHr": 0,
-    "sharedHr": 3.0938,
+    "equippedHr": 0,
+    "stashHr": 0.0313,
+    "sharedHr": 3,
     "characters": [
       {
         "name": "FixtureSorc",
         "className": "Sorceress",
         "level": 90,
         "ruleset": "LoD",
-        "equippedHr": 0.094,
-        "stashHr": 0
+        "equippedHr": 0,
+        "stashHr": 0.031
       }
     ],
     "runeSummary": [
@@ -100,28 +99,28 @@
         }
       }
     ],
-    "topCharacterStash": [],
-    "topInventory": [],
-    "topSharedStash": [
+    "topCharacterStash": [
       {
-        "id": "SharedStashSoftCoreV2.d2i-SharedStashSoftCoreV2.d2i page 1 item 1-Harlequin Crest",
-        "name": "Harlequin Crest",
-        "quantity": 2,
-        "owner": "SharedStashSoftCoreV2.d2i",
-        "location": "shared-stash",
-        "source": "SharedStashSoftCoreV2.d2i page 1 item 1",
-        "sheet": "UniqueSet Market",
-        "valueHr": 0.09375,
-        "tradeValue": "Mal",
+        "id": "FixtureSorc-FixtureSorc stash 1-Key of Hate",
+        "name": "Key of Hate",
+        "quantity": 1,
+        "owner": "FixtureSorc",
+        "location": "character-stash",
+        "source": "FixtureSorc stash 1",
+        "valueHr": 0.03125,
         "matchedBy": "exact",
+        "sheet": "Endgame Market",
+        "tradeValue": "Pul",
         "valueSource": {
           "type": "workbook",
-          "label": "Workbook: UniqueSet Market",
-          "sheet": "UniqueSet Market",
+          "label": "Workbook: Endgame Market",
+          "sheet": "Endgame Market",
           "basis": "sell"
         }
       }
     ],
+    "topInventory": [],
+    "topSharedStash": [],
     "allValuedItems": [
       {
         "id": "SharedStashSoftCoreV2.d2i-SharedStashSoftCoreV2.d2i materials 1-Jah Rune",
@@ -152,38 +151,20 @@
         }
       },
       {
-        "id": "FixtureSorc-FixtureSorc equipped 1-Harlequin Crest",
-        "name": "Harlequin Crest",
+        "id": "FixtureSorc-FixtureSorc stash 1-Key of Hate",
+        "name": "Key of Hate",
         "quantity": 1,
         "owner": "FixtureSorc",
-        "location": "equipped",
-        "source": "FixtureSorc equipped 1",
-        "sheet": "UniqueSet Market",
-        "valueHr": 0.09375,
-        "tradeValue": "Mal",
+        "location": "character-stash",
+        "source": "FixtureSorc stash 1",
+        "valueHr": 0.03125,
         "matchedBy": "exact",
+        "sheet": "Endgame Market",
+        "tradeValue": "Pul",
         "valueSource": {
           "type": "workbook",
-          "label": "Workbook: UniqueSet Market",
-          "sheet": "UniqueSet Market",
-          "basis": "sell"
-        }
-      },
-      {
-        "id": "SharedStashSoftCoreV2.d2i-SharedStashSoftCoreV2.d2i page 1 item 1-Harlequin Crest",
-        "name": "Harlequin Crest",
-        "quantity": 2,
-        "owner": "SharedStashSoftCoreV2.d2i",
-        "location": "shared-stash",
-        "source": "SharedStashSoftCoreV2.d2i page 1 item 1",
-        "sheet": "UniqueSet Market",
-        "valueHr": 0.09375,
-        "tradeValue": "Mal",
-        "matchedBy": "exact",
-        "valueSource": {
-          "type": "workbook",
-          "label": "Workbook: UniqueSet Market",
-          "sheet": "UniqueSet Market",
+          "label": "Workbook: Endgame Market",
+          "sheet": "Endgame Market",
           "basis": "sell"
         }
       }
@@ -197,11 +178,11 @@
     },
     "snapshot": {
       "importedAt": "2026-03-29T16:00:00.000Z",
-      "totalHr": 3.1875,
+      "totalHr": 3.0313,
       "runeHr": 3,
-      "equippedHr": 0.0938,
-      "stashHr": 0,
-      "sharedHr": 3.0938,
+      "equippedHr": 0,
+      "stashHr": 0.0313,
+      "sharedHr": 3,
       "characterCount": 1
     }
   }

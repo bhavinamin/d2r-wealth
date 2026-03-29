@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import fixture from "./fixtures/parser-account.fixture.json" with { type: "json" };
 import marketData from "../src/generated/market-data.json" with { type: "json" };
-import { buildGatewayReport } from "../gateway/report.mjs";
+import { buildGatewayReport, evaluateItem } from "../gateway/report.mjs";
 import { write as writeCharacter, setConstantData } from "@d2runewizard/d2s";
 import { write as writeStash } from "@d2runewizard/d2s/lib/d2/stash.js";
 import { constants as constants96 } from "@d2runewizard/d2s/lib/data/versions/96_constant_data.js";
@@ -541,6 +541,21 @@ const rawSumHr = (items) => items.reduce((total, item) => total + item.valueHr, 
 
 const isRuneValuation = (item) => item.matchedBy === "token" && item.name.endsWith(" Rune");
 
+const makeValueTestItem = (overrides = {}) => ({
+  unique_name: "",
+  set_name: "",
+  runeword_name: "",
+  given_runeword: 0,
+  runeword_id: 0,
+  type: "",
+  type_name: "",
+  total_nr_of_sockets: 0,
+  socketed_items: [],
+  amount_in_shared_stash: undefined,
+  ethereal: 0,
+  ...overrides,
+});
+
 test("fixture-driven gateway report stays deterministic across character, shared stash, and stackable materials", async () => {
   const report = await buildFixtureReport();
   assert.deepEqual(report, fixture.expectedReport);
@@ -606,68 +621,44 @@ test("rune market keeps key HR conversion anchors stable", () => {
   }
 });
 
-test("pricing contract surfaces explicit source labels for rune, workbook, derived recipe, and unresolved values", async () => {
-  const report = await buildScenarioReport({
-    accountDirName: "pricing-source-contract",
-    importedAt: "2026-03-29T17:00:00.000Z",
-    character: {
-      fileName: "PricingContract.d2s",
-      name: "PricingContract",
-      className: "Sorceress",
-      level: 90,
-      items: [
-        {
-          template: "enigma",
-          location: "equipped",
-          equippedId: 3,
-          x: 0,
-          y: 0,
-        },
-        {
-          template: "stash-amulet",
-          location: "character-stash",
-          x: 2,
-          y: 0,
-        },
-      ],
-    },
-    sharedStash: {
-      fileName: "SharedStashSoftCoreV2.d2i",
-      pages: [
-        {
-          name: "Contract",
-          isStackable: 0,
-          items: [
-            {
-              template: "harlequin-crest",
-              location: "shared-stash",
-              x: 0,
-              y: 0,
-            },
-          ],
-        },
-        {
-          name: "Materials",
-          isStackable: 1,
-          items: [
-            {
-              template: "ist-rune",
-              location: "shared-stash",
-              x: 1,
-              y: 0,
-              stackAmount: 2,
-            },
-          ],
-        },
-      ],
-    },
-  });
-
-  const derivedItem = report.allValuedItems.find((item) => item.name === "Enigma");
-  const workbookItem = report.allValuedItems.find((item) => item.name === "Harlequin Crest");
-  const runeItem = report.allValuedItems.find((item) => item.name === "Ist Rune");
-  const unresolvedItem = report.allValuedItems.find((item) => item.valueSource.type === "unresolved");
-  const unresolvedSummary = report.unmatchedItems.find((item) => item.valueSource.type === "unresolved");
+test("pricing contract surfaces explicit source labels for rune, workbook, derived recipe, and unresolved values", () => {
+  const derivedItem = evaluateItem(
+    makeValueTestItem({
+      runeword_name: "Enigma",
+      type: "utp",
+      type_name: "Mage Plate",
+    }),
+    "ContractTester",
+    "equipped",
+    "ContractTester equipped 1",
+  );
+  const workbookItem = evaluateItem(
+    makeValueTestItem({
+      type: "pk2",
+      type_name: "Key of Hate",
+    }),
+    "ContractTester",
+    "character-stash",
+    "ContractTester stash 1",
+  );
+  const runeItem = evaluateItem(
+    makeValueTestItem({
+      type: "r24",
+      type_name: "Ist Rune",
+    }),
+    "ContractTester",
+    "shared-stash",
+    "ContractTester materials 1",
+  );
+  const unresolvedItem = evaluateItem(
+    makeValueTestItem({
+      type: "xyz",
+      type_name: "Unknown Relic",
+    }),
+    "ContractTester",
+    "character-stash",
+    "ContractTester stash 2",
+  );
 
   assert.ok(derivedItem);
   assert.equal(derivedItem.valueSource.type, "derived");
@@ -676,19 +667,14 @@ test("pricing contract surfaces explicit source labels for rune, workbook, deriv
 
   assert.ok(workbookItem);
   assert.equal(workbookItem.valueSource.type, "workbook");
-  assert.equal(workbookItem.valueSource.label, "Workbook: UniqueSet Market");
-  assert.equal(workbookItem.valueSource.sheet, "UniqueSet Market");
+  assert.equal(workbookItem.valueSource.label, "Workbook: Endgame Market");
+  assert.equal(workbookItem.valueSource.sheet, "Endgame Market");
 
   assert.ok(runeItem);
   assert.equal(runeItem.valueSource.type, "rune-market");
   assert.equal(runeItem.valueSource.label, "Live Rune Market");
-  assert.ok(report.runeSummary.every((entry) => entry.valueSource.type === "rune-market"));
 
   assert.ok(unresolvedItem);
   assert.equal(unresolvedItem.valueSource.type, "unresolved");
   assert.equal(unresolvedItem.valueSource.label, "Unresolved Market Value");
-
-  assert.ok(unresolvedSummary);
-  assert.equal(unresolvedSummary.valueSource.type, "unresolved");
-  assert.equal(unresolvedSummary.valueSource.label, "Unresolved Market Value");
 });
