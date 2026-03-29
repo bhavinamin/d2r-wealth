@@ -108,7 +108,11 @@ function Get-NextTask([string]$PrdFile, $CompletedTasks) {
         if ($line -match $checkboxPattern) {
             $isDone = $matches['done'] -match '[xX]'
             $task = $matches['task'].Trim()
-            if (-not $isDone -and -not $CompletedTasks.Contains($task)) {
+            $alreadyCompleted = $false
+            if ($CompletedTasks) {
+                $alreadyCompleted = @($CompletedTasks | Where-Object { $_ -eq $task }).Count -gt 0
+            }
+            if (-not $isDone -and -not $alreadyCompleted) {
                 return $task
             }
         }
