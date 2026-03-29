@@ -5,6 +5,11 @@ APP_ROOT="${APP_ROOT:-/srv/d2-wealth}"
 RELEASE_DIR="${RELEASE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 SHARED_DIR="${APP_ROOT}/shared"
 CURRENT_LINK="${APP_ROOT}/current"
+NGINX_SOURCE="${RELEASE_DIR}/deploy/nginx/d2r.bjav.io.conf"
+NGINX_TARGET="/etc/nginx/sites-available/d2r.bjav.io.conf"
+NGINX_ENABLED_TARGET="/etc/nginx/sites-enabled/d2r.bjav.io.conf"
+SYSTEMD_SOURCE="${RELEASE_DIR}/deploy/systemd/d2-wealth-backend.service"
+SYSTEMD_TARGET="/etc/systemd/system/d2-wealth-backend.service"
 
 mkdir -p "${APP_ROOT}/releases" "${SHARED_DIR}/data"
 
@@ -18,7 +23,13 @@ if [ -d "${CURRENT_LINK}" ] && [ ! -L "${CURRENT_LINK}" ]; then
   rm -rf "${CURRENT_LINK}"
 fi
 
+install -D -m 644 "${SYSTEMD_SOURCE}" "${SYSTEMD_TARGET}"
+install -D -m 644 "${NGINX_SOURCE}" "${NGINX_TARGET}"
+ln -sfn "${NGINX_TARGET}" "${NGINX_ENABLED_TARGET}"
+
 ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
 
+systemctl daemon-reload
+nginx -t
 systemctl restart d2-wealth-backend
 systemctl reload nginx

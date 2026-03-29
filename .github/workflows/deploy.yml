@@ -55,6 +55,8 @@ jobs:
         run: |
           echo "Waiting for d2r.bjav.io health..."
           node ./scripts/smoke-health-check.mjs https://d2r.bjav.io/health
+          echo "Verifying frontend cache headers..."
+          node ./scripts/smoke-frontend-cache-check.mjs https://d2r.bjav.io
 
       - name: Collect server diagnostics on smoke failure
         if: failure()
