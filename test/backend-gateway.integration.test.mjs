@@ -88,6 +88,12 @@ const createPairing = async (backendBaseUrl, clientId) => {
   assert.equal(response.status, 200);
   assert.equal(body.clientId, undefined);
   assert.match(body.pairingUrl, /\/auth\/discord\/start\?/);
+  const pairingUrl = new URL(body.pairingUrl);
+  const returnTo = pairingUrl.searchParams.get("returnTo");
+  assert.ok(returnTo);
+  const returnToUrl = new URL(returnTo);
+  assert.equal(returnToUrl.searchParams.get("pair"), body.pairingId);
+  assert.equal(returnToUrl.searchParams.get("backend"), backendBaseUrl);
   return body;
 };
 

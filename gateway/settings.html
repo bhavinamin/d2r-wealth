@@ -158,6 +158,11 @@
         transform: translateY(1px);
       }
 
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+
       .secondary {
         background: rgba(255, 255, 255, 0.08);
         color: #efe7d5;
@@ -189,6 +194,23 @@
       .pair-panel {
         display: grid;
         gap: 10px;
+      }
+
+      .setup-list {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 6px;
+        font-size: 0.82rem;
+        color: rgba(243, 237, 225, 0.7);
+      }
+
+      .setup-list li.is-active {
+        color: #f4d8a7;
+      }
+
+      .setup-list li.is-complete {
+        color: #89df9d;
       }
 
       .pair-copy {
@@ -289,6 +311,11 @@
         <div class="section-title">Account Link</div>
         <div class="pair-panel">
           <p id="pair-copy" class="pair-copy">Sign in with Discord and link this PC to your D2 Wealth account.</p>
+          <ol id="setup-list" class="setup-list">
+            <li data-step="folder">Choose the Diablo II save folder and save the setting.</li>
+            <li data-step="auth">Sign in with Discord in the browser and approve pairing for this PC.</li>
+            <li data-step="sync">Leave the gateway running so it can sync in the background.</li>
+          </ol>
             <div class="action-row">
               <button type="button" class="discord-button" id="pair-gateway">
                 <svg class="discord-glyph" viewBox="0 0 127.14 96.36" aria-hidden="true">
@@ -328,6 +355,7 @@
       const syncPill = document.getElementById("sync-pill");
       const saveStatus = document.getElementById("save-status");
       const pairCopy = document.getElementById("pair-copy");
+      const setupList = document.getElementById("setup-list");
       const pairGateway = document.getElementById("pair-gateway");
       const linkedPanel = document.getElementById("linked-panel");
       const disconnectGateway = document.getElementById("disconnect-gateway");
@@ -335,6 +363,52 @@
 
       let saveDirDirty = false;
       let autoStartDirty = false;
+
+      const hasUnsavedChanges = () => saveDirDirty || autoStartDirty;
+
+      const setPairingMessage = (status, { unsavedChanges = hasUnsavedChanges() } = {}) => {
+        const linked = Boolean(status.syncToken);
+        const saveValidation = status.saveValidation ?? { valid: false, message: "Choose a save folder." };
+        const saveReady = Boolean(saveValidation.valid);
+
+        if (linked && saveReady) {
+          return "This PC is linked to your D2 Wealth account. Leave the gateway running and it will keep syncing in the background.";
+        }
+        if (linked) {
+          return "This PC is linked, but the save folder still needs attention before sync can recover.";
+        }
+        if (unsavedChanges) {
+          return "Save the Diablo II folder selection first. Then the Discord sign-in step will open in your browser.";
+        }
+        if (!saveReady) {
+          return "Step 1: choose the folder that contains your active Diablo II save files. After that, sign in with Discord to approve pairing.";
+        }
+        return "Step 2: sign in with Discord in the browser and approve pairing for this PC. The gateway will claim its sync token automatically.";
+      };
+
+      const renderSetupChecklist = (status, { unsavedChanges = hasUnsavedChanges() } = {}) => {
+        const linked = Boolean(status.syncToken);
+        const saveReady = Boolean(status.saveValidation?.valid);
+        for (const item of setupList.querySelectorAll("[data-step]")) {
+          const step = item.getAttribute("data-step");
+          let complete = false;
+          let active = false;
+
+          if (step === "folder") {
+            complete = saveReady && !unsavedChanges;
+            active = !complete;
+          } else if (step === "auth") {
+            complete = linked;
+            active = !complete && saveReady && !unsavedChanges;
+          } else if (step === "sync") {
+            complete = linked && Boolean(status.lastBackendSyncAt) && !status.lastBackendSyncError;
+            active = linked && !complete;
+          }
+
+          item.classList.toggle("is-complete", complete);
+          item.classList.toggle("is-active", active);
+        }
+      };
 
       const renderStatus = (status) => {
         const linked = Boolean(status.syncToken);
@@ -349,9 +423,10 @@
         pairGateway.classList.toggle("hidden", linked);
         linkedPanel.classList.toggle("hidden", !linked);
         disconnectGateway.classList.toggle("hidden", !status.syncToken);
-        pairCopy.innerHTML = status.syncToken
-          ? "This PC is linked to your D2 Wealth account."
-          : "Sign in with Discord and link this PC to your D2 Wealth account.";
+        pairGateway.disabled = !saveValidation.valid || hasUnsavedChanges();
+        pairCopy.style.color = "";
+        pairCopy.textContent = setPairingMessage(status);
+        renderSetupChecklist(status);
 
         statusGrid.innerHTML = `
           <article class="meta-card">
@@ -374,6 +449,7 @@
       };
 
       const applyStatus = (status) => {
+        window.__lastGatewayStatus = status;
         if (!saveDirDirty && document.activeElement !== saveDir) {
           saveDir.value = status.saveDir ?? "";
         }
@@ -385,21 +461,19 @@
 
       saveDir.addEventListener("input", () => {
         saveDirDirty = true;
+        renderStatus(window.__lastGatewayStatus ?? { saveValidation: { valid: false, message: "Choose a save folder." }, files: [] });
       });
 
       autoStart.addEventListener("change", () => {
         autoStartDirty = true;
+        renderStatus(window.__lastGatewayStatus ?? { saveValidation: { valid: false, message: "Choose a save folder." }, files: [] });
       });
 
-      document.getElementById("browse").addEventListener("click", async () => {
-        const nextSaveDir = await window.gatewayTray.browseSaveDir();
-        if (nextSaveDir) {
-          saveDir.value = nextSaveDir;
-          saveDirDirty = true;
+      const persistPendingSettings = async () => {
+        if (!hasUnsavedChanges()) {
+          return window.__lastGatewayStatus;
         }
-      });
 
-      saveSettings.addEventListener("click", async () => {
         const next = await window.gatewayTray.saveSettings({
           saveDir: saveDir.value,
           autoStart: autoStart.checked,
@@ -407,20 +481,59 @@
         saveDirDirty = false;
         autoStartDirty = false;
         applyStatus(next);
+        return next;
+      };
+
+      const showActionError = (error) => {
+        const message = error instanceof Error ? error.message : "Gateway setup failed.";
+        pairCopy.textContent = message;
+        pairCopy.style.color = "#ffb0a7";
+      };
+
+      document.getElementById("browse").addEventListener("click", async () => {
+        const nextSaveDir = await window.gatewayTray.browseSaveDir();
+        if (nextSaveDir) {
+          saveDir.value = nextSaveDir;
+          saveDirDirty = true;
+          renderStatus(window.__lastGatewayStatus ?? { saveValidation: { valid: false, message: "Choose a save folder." }, files: [] });
+        }
+      });
+
+      saveSettings.addEventListener("click", async () => {
+        try {
+          const next = await persistPendingSettings();
+          if (next) {
+            applyStatus(next);
+          }
+        } catch (error) {
+          showActionError(error);
+        }
       });
 
       pairGateway.addEventListener("click", async () => {
-        const next = await window.gatewayTray.pairGateway();
-        saveDirDirty = false;
-        autoStartDirty = false;
-        applyStatus(next);
+        try {
+          const statusAfterSave = await persistPendingSettings();
+          if (!statusAfterSave?.saveValidation?.valid) {
+            return;
+          }
+          const next = await window.gatewayTray.pairGateway();
+          saveDirDirty = false;
+          autoStartDirty = false;
+          applyStatus(next);
+        } catch (error) {
+          showActionError(error);
+        }
       });
 
       disconnectGateway.addEventListener("click", async () => {
-        const next = await window.gatewayTray.disconnectGateway();
-        saveDirDirty = false;
-        autoStartDirty = false;
-        applyStatus(next);
+        try {
+          const next = await window.gatewayTray.disconnectGateway();
+          saveDirDirty = false;
+          autoStartDirty = false;
+          applyStatus(next);
+        } catch (error) {
+          showActionError(error);
+        }
       });
 
       window.gatewayTray.onStatus((status) => {
