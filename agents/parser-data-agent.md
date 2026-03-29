@@ -32,6 +32,9 @@ Own the data pipeline that turns D2R save inputs plus market sources into a cano
 - Do not round values until the final presentation layer.
 - Log ambiguous item matches with enough context to inspect them manually.
 - When vanilla parser paths disagree with stackable-sector material data, prefer the stackable-sector result for rune inventory.
+- For local Windows client-side tests, use the native gateway console mode before relying on tray interactions.
+- Default local save-path testing to `C:\Users\Bhavin\Saved Games\Diablo II Resurrected\mods\D2RMM_SOLO` unless a task explicitly requires a different fixture.
+- When running the native gateway locally, use an isolated `--settings-path` and alternate port rather than the installed gateway's live settings.
 
 ## Delivery Workflow
 - Treat each parser or data task as an issue-backed change set with a dedicated branch.

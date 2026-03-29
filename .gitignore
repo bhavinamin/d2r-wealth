@@ -1,5 +1,6 @@
 node_modules/
 dist/
+release/
 src/generated/market-data.json
 tsconfig.tsbuildinfo
 tmp-gateway.log
@@ -9,3 +10,7 @@ dashboard-preview-source*.png
 landing-debug*.png
 landing-final-check.png
 src/assets/dashboard-preview-crop-test*.png
+test-results/
+native-gateway/**/bin/
+native-gateway/**/obj/
+native-gateway/**/*.csproj.user
