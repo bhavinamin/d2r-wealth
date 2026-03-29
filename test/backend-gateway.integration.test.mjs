@@ -162,6 +162,71 @@ test("pairing issues a token only after approval and consumes the pairing on fir
   assert.equal(consumedClaim.status, "consumed");
 });
 
+test("gateway status summary reports explicit save, pairing, sync, and last-error states", async () => {
+  const invalidService = new GatewayService({
+    settings: {
+      host: "127.0.0.1",
+      port: 3188,
+      saveDir: path.join(tempRoot, "missing-saves"),
+      autoStart: false,
+      dashboardUrl: "http://127.0.0.1:4173",
+      backendUrl: "http://127.0.0.1:9999",
+      accountId: "account-missing",
+      clientId: "desktop-missing",
+      syncToken: "",
+    },
+  });
+
+  await invalidService.refreshSaveValidation();
+  const invalidStatus = invalidService.status();
+  assert.equal(invalidStatus.statusSummary.save.state, "attention");
+  assert.equal(invalidStatus.statusSummary.pairing.state, "blocked");
+  assert.equal(invalidStatus.statusSummary.sync.state, "not-paired");
+  assert.equal(invalidStatus.statusSummary.lastError?.scope, "save-validation");
+  assert.match(String(invalidStatus.statusSummary.lastError?.message), /does not exist/i);
+
+  const validSaveDir = path.join(tempRoot, "status-ready");
+  fs.mkdirSync(validSaveDir, { recursive: true });
+  fs.writeFileSync(path.join(validSaveDir, "hero.d2s"), "fixture", "utf8");
+
+  const readyService = new GatewayService({
+    settings: {
+      host: "127.0.0.1",
+      port: 3189,
+      saveDir: validSaveDir,
+      autoStart: false,
+      dashboardUrl: "http://127.0.0.1:4173",
+      backendUrl: "http://127.0.0.1:9999",
+      accountId: "account-ready",
+      clientId: "desktop-ready",
+      syncToken: "",
+    },
+  });
+
+  readyService.buildReport = async () => ({
+    importedAt: "2026-03-29T12:00:00.000Z",
+    totalHr: 1,
+    characters: [{ name: "Ready", className: "Sorceress", level: 90, totalHr: 1 }],
+    snapshot: {
+      totalHr: 1,
+      equippedHr: 0.25,
+      runeHr: 0.25,
+      sharedHr: 0.25,
+      stashHr: 0.25,
+      characterCount: 1,
+      capturedAt: "2026-03-29T12:00:00.000Z",
+    },
+    topItems: [],
+  });
+
+  await readyService.refreshSaveValidation();
+  const readyStatus = readyService.status();
+  assert.equal(readyStatus.statusSummary.save.state, "ready");
+  assert.equal(readyStatus.statusSummary.pairing.state, "ready");
+  assert.equal(readyStatus.statusSummary.sync.state, "not-paired");
+  assert.equal(readyStatus.statusSummary.lastError, null);
+});
+
 test("gateway sync covers token-based ingest, latest/history reads, and disconnect cleanup", async (t) => {
   const ctx = await loadIntegrationContext("sync");
   t.after(ctx.close);
@@ -204,6 +269,11 @@ test("gateway sync covers token-based ingest, latest/history reads, and disconne
   assert.match(String(service.lastBackendSyncAt), /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(service.lastBackendSyncError, null);
   assert.match(String(service.lastSuccessfulAccountUpdateAt), /^\d{4}-\d{2}-\d{2}T/);
+  const syncedStatus = service.status();
+  assert.equal(syncedStatus.statusSummary.save.state, "ready");
+  assert.equal(syncedStatus.statusSummary.pairing.state, "paired");
+  assert.equal(syncedStatus.statusSummary.sync.state, "synced");
+  assert.equal(syncedStatus.statusSummary.lastError, null);
   assert.equal(service.syncLog[0].event, "ingest-response");
   assert.equal(service.syncLog[0].outcome, "accepted");
   assert.equal(service.syncLog[0].lastSuccessfulAccountUpdateAt, service.lastSuccessfulAccountUpdateAt);
@@ -264,6 +334,12 @@ test("gateway sync covers token-based ingest, latest/history reads, and disconne
   assert.equal(service.syncLog[0].lastSuccessfulAccountUpdateAt, latestBody.lastSuccessfulAccountUpdateAt);
   assert.equal(service.syncLog[1].event, "ingest-attempt");
   assert.equal(service.syncLog[1].outcome, "attempted");
+  const rejectedStatus = service.status();
+  assert.equal(rejectedStatus.statusSummary.save.state, "ready");
+  assert.equal(rejectedStatus.statusSummary.pairing.state, "paired");
+  assert.equal(rejectedStatus.statusSummary.sync.state, "error");
+  assert.equal(rejectedStatus.statusSummary.lastError?.scope, "sync");
+  assert.equal(rejectedStatus.statusSummary.lastError?.message, "Backend ingest failed with 401");
 
   const { response: revokedIngestResponse, body: revokedIngestBody } = await fetchJson(`${ctx.backendBaseUrl}/api/ingest`, {
     method: "POST",
