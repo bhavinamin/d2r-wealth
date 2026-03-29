@@ -478,7 +478,7 @@ const withFixedDate = async (fn) => {
   }
 };
 
-test("fixture-driven gateway report stays deterministic across character, shared stash, and stackable materials", async () => {
+const buildFixtureReport = async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "d2-wealth-parser-fixtures-"));
   const saveDir = path.join(tempRoot, fixture.accountDirName);
   await fs.mkdir(saveDir, { recursive: true });
@@ -486,6 +486,53 @@ test("fixture-driven gateway report stays deterministic across character, shared
   await createCharacterFile(saveDir);
   await createSharedStashFile(saveDir);
 
-  const report = await withFixedDate(() => buildGatewayReport(saveDir));
+  return withFixedDate(() => buildGatewayReport(saveDir));
+};
+
+const roundHr = (value) => Number(value.toFixed(4));
+
+const sumHr = (items) => roundHr(items.reduce((total, item) => total + item.valueHr, 0));
+
+const rawSumHr = (items) => items.reduce((total, item) => total + item.valueHr, 0);
+
+const isRuneValuation = (item) => item.matchedBy === "token" && item.name.endsWith(" Rune");
+
+test("fixture-driven gateway report stays deterministic across character, shared stash, and stackable materials", async () => {
+  const report = await buildFixtureReport();
   assert.deepEqual(report, fixture.expectedReport);
+});
+
+test("account totals reconcile to equipped, stash, shared stash, and rune-derived values without double counting", async () => {
+  const report = await buildFixtureReport();
+  const equippedItems = report.allValuedItems.filter((item) => item.location === "equipped");
+  const stashItems = report.allValuedItems.filter((item) =>
+    ["character-stash", "inventory", "cube"].includes(item.location),
+  );
+  const sharedItems = report.allValuedItems.filter((item) => ["shared-stash", "private-stash"].includes(item.location));
+  const runeItems = sharedItems.filter(isRuneValuation);
+  const nonRuneSharedItems = sharedItems.filter((item) => !isRuneValuation(item));
+
+  const equippedHr = sumHr(equippedItems);
+  const stashHr = sumHr(stashItems);
+  const runeHr = sumHr(runeItems);
+  const nonRuneSharedHr = sumHr(nonRuneSharedItems);
+  const rawReconciledTotal = rawSumHr(equippedItems) + rawSumHr(stashItems) + rawSumHr(nonRuneSharedItems) + rawSumHr(runeItems);
+
+  assert.equal(report.equippedHr, equippedHr);
+  assert.equal(report.stashHr, stashHr);
+  assert.equal(report.runeHr, runeHr);
+  assert.equal(report.sharedHr, roundHr(nonRuneSharedHr + runeHr));
+  assert.equal(report.totalHr, sumHr(report.allValuedItems));
+  assert.equal(report.totalHr, roundHr(rawReconciledTotal));
+
+  assert.deepEqual(
+    report.topSharedStash.map((item) => item.name),
+    nonRuneSharedItems.map((item) => item.name),
+  );
+  assert.ok(report.topSharedStash.every((item) => !isRuneValuation(item)));
+  assert.ok(report.runeSummary.every((entry) => entry.count > 0));
+  assert.deepEqual(
+    report.runeSummary.map((entry) => entry.name),
+    ["Jah", "Ist"],
+  );
 });
