@@ -356,6 +356,12 @@ code {
   margin-bottom: 18px;
 }
 
+.stats-note {
+  margin: -6px 2px 18px;
+  color: rgba(244, 239, 228, 0.68);
+  font-size: 0.92rem;
+}
+
 .stat-card {
   padding: 14px 16px;
   border-radius: 18px;
@@ -545,8 +551,24 @@ code {
 }
 
 .roster-values {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
   text-align: right;
   align-self: center;
+}
+
+.roster-total-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.68rem;
+}
+
+.roster-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .value-stack {
@@ -1029,5 +1051,14 @@ code {
   .table-row,
   .roster-card {
     align-items: flex-start;
+  }
+
+  .roster-values {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .roster-breakdown {
+    justify-content: flex-start;
   }
 }

@@ -60,6 +60,8 @@ export type WealthSnapshot = {
   totalHr: number;
   runeHr: number;
   equippedHr: number;
+  inventoryHr?: number;
+  characterStashHr?: number;
   stashHr: number;
   sharedHr: number;
   characterCount: number;
@@ -71,6 +73,8 @@ export type WealthReport = {
   totalHr: number;
   runeHr: number;
   equippedHr: number;
+  inventoryHr?: number;
+  characterStashHr?: number;
   stashHr: number;
   sharedHr: number;
   characters: Array<{
@@ -79,7 +83,10 @@ export type WealthReport = {
     level: number;
     ruleset: "Classic" | "LoD" | "ROTW";
     equippedHr: number;
+    inventoryHr?: number;
+    characterStashHr?: number;
     stashHr: number;
+    totalHr?: number;
   }>;
   runeSummary: RuneSummary[];
   topCharacterStash: ValuedItem[];

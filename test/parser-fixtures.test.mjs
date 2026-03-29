@@ -561,29 +561,41 @@ test("fixture-driven gateway report stays deterministic across character, shared
   assert.deepEqual(report, fixture.expectedReport);
 });
 
-test("account totals reconcile to equipped, stash, shared stash, and rune-derived values without double counting", async () => {
+test("account totals reconcile to equipped, inventory, stash, shared stash, and rune-derived values without double counting", async () => {
   const report = await buildFixtureReport();
   const equippedItems = report.allValuedItems.filter((item) => item.location === "equipped");
-  const stashItems = report.allValuedItems.filter((item) =>
-    ["character-stash", "inventory", "cube"].includes(item.location),
-  );
+  const inventoryItems = report.allValuedItems.filter((item) => ["inventory", "cube"].includes(item.location));
+  const characterStashItems = report.allValuedItems.filter((item) => item.location === "character-stash");
   const sharedItems = report.allValuedItems.filter((item) => ["shared-stash", "private-stash"].includes(item.location));
   const runeItems = sharedItems.filter(isRuneValuation);
   const nonRuneSharedItems = sharedItems.filter((item) => !isRuneValuation(item));
 
   const equippedHr = sumHr(equippedItems);
-  const stashHr = sumHr(stashItems);
+  const inventoryHr = sumHr(inventoryItems);
+  const characterStashHr = sumHr(characterStashItems);
+  const stashHr = roundHr(inventoryHr + characterStashHr);
   const runeHr = sumHr(runeItems);
   const nonRuneSharedHr = sumHr(nonRuneSharedItems);
-  const rawReconciledTotal = rawSumHr(equippedItems) + rawSumHr(stashItems) + rawSumHr(nonRuneSharedItems) + rawSumHr(runeItems);
+  const rawReconciledTotal =
+    rawSumHr(equippedItems) + rawSumHr(inventoryItems) + rawSumHr(characterStashItems) + rawSumHr(nonRuneSharedItems) + rawSumHr(runeItems);
 
   assert.equal(report.equippedHr, equippedHr);
+  assert.equal(report.inventoryHr, inventoryHr);
+  assert.equal(report.characterStashHr, characterStashHr);
   assert.equal(report.stashHr, stashHr);
   assert.equal(report.runeHr, runeHr);
   assert.equal(report.sharedHr, roundHr(nonRuneSharedHr + runeHr));
   assert.equal(report.totalHr, sumHr(report.allValuedItems));
   assert.equal(report.totalHr, roundHr(rawReconciledTotal));
 
+  assert.deepEqual(
+    report.topCharacterStash.map((item) => item.name),
+    characterStashItems.map((item) => item.name),
+  );
+  assert.deepEqual(
+    report.topInventory.map((item) => item.name),
+    inventoryItems.map((item) => item.name),
+  );
   assert.deepEqual(
     report.topSharedStash.map((item) => item.name),
     nonRuneSharedItems.map((item) => item.name),

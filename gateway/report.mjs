@@ -438,6 +438,13 @@ const gatherRuneCounts = (items, counts, looseOnly = false) => {
   }
 };
 
+const isInventoryLocation = (location) => location === "inventory" || location === "cube";
+const isCharacterStashLocation = (location) => location === "character-stash";
+const isSharedStashLocation = (location) => location === "shared-stash" || location === "private-stash";
+const isRuneValuation = (item) => item.matchedBy === "token" && market.tokenValues[normalizeMarketName(item.name)]?.kind === "rune";
+const sumItemValues = (items) => items.reduce((total, item) => total + item.valueHr, 0);
+const roundHr = (value, digits = 4) => Number(value.toFixed(digits));
+
 const parseChronicleItems = async (chronicleBytes) => {
   if (!chronicleBytes?.length) {
     return [];
@@ -626,13 +633,21 @@ export const buildGatewayReport = async (saveDir) => {
     valuedItems.push(...characterValues);
     collectWarnings(characterValues, valuationWarnings, unmatchedItems);
 
+    const equippedHr = roundHr(sumItemValues(characterValues.filter((item) => item.location === "equipped")), 3);
+    const inventoryHr = roundHr(sumItemValues(characterValues.filter((item) => isInventoryLocation(item.location))), 3);
+    const characterStashHr = roundHr(sumItemValues(characterValues.filter((item) => isCharacterStashLocation(item.location))), 3);
+    const stashHr = roundHr(inventoryHr + characterStashHr, 3);
+
     characterSummaries.push({
       name: character.header.name,
       className: character.header.class,
       level: character.header.level,
       ruleset: classifyRuleset(character, saveDir, files),
-      equippedHr: Number(characterValues.filter((item) => item.location === "equipped").reduce((a, b) => a + b.valueHr, 0).toFixed(3)),
-      stashHr: Number(characterValues.filter((item) => item.location !== "equipped").reduce((a, b) => a + b.valueHr, 0).toFixed(3)),
+      equippedHr,
+      inventoryHr,
+      characterStashHr,
+      stashHr,
+      totalHr: roundHr(equippedHr + stashHr, 3),
     });
   }
 
@@ -679,26 +694,13 @@ export const buildGatewayReport = async (saveDir) => {
     .filter((entry) => entry.count > 0)
     .sort((left, right) => right.totalHr - left.totalHr || right.count - left.count);
 
-  const totalHr = Number(valuedItems.reduce((total, item) => total + item.valueHr, 0).toFixed(4));
-  const runeHr = Number(
-    valuedItems
-      .filter((item) => item.matchedBy === "token" && market.tokenValues[normalizeMarketName(item.name)]?.kind === "rune")
-      .reduce((total, item) => total + item.valueHr, 0)
-      .toFixed(4),
-  );
-  const equippedHr = Number(valuedItems.filter((item) => item.location === "equipped").reduce((a, b) => a + b.valueHr, 0).toFixed(4));
-  const stashHr = Number(
-    valuedItems
-      .filter((item) => item.location === "character-stash" || item.location === "inventory" || item.location === "cube")
-      .reduce((a, b) => a + b.valueHr, 0)
-      .toFixed(4),
-  );
-  const sharedHr = Number(
-    valuedItems
-      .filter((item) => item.location === "shared-stash" || item.location === "private-stash")
-      .reduce((a, b) => a + b.valueHr, 0)
-      .toFixed(4),
-  );
+  const totalHr = roundHr(sumItemValues(valuedItems));
+  const runeHr = roundHr(sumItemValues(valuedItems.filter(isRuneValuation)));
+  const equippedHr = roundHr(sumItemValues(valuedItems.filter((item) => item.location === "equipped")));
+  const inventoryHr = roundHr(sumItemValues(valuedItems.filter((item) => isInventoryLocation(item.location))));
+  const characterStashHr = roundHr(sumItemValues(valuedItems.filter((item) => isCharacterStashLocation(item.location))));
+  const stashHr = roundHr(inventoryHr + characterStashHr);
+  const sharedHr = roundHr(sumItemValues(valuedItems.filter((item) => isSharedStashLocation(item.location))));
 
   return {
     importedAt,
@@ -706,23 +708,25 @@ export const buildGatewayReport = async (saveDir) => {
     totalHr,
     runeHr,
     equippedHr,
+    inventoryHr,
+    characterStashHr,
     stashHr,
     sharedHr,
     characters: characterSummaries,
     runeSummary,
     topCharacterStash: valuedItems
-      .filter((item) => item.location === "character-stash")
+      .filter((item) => isCharacterStashLocation(item.location))
       .filter((item) => item.valueHr > 0)
       .sort((left, right) => right.valueHr - left.valueHr)
       .slice(0, 12),
     topInventory: valuedItems
-      .filter((item) => item.location === "inventory" || item.location === "cube")
+      .filter((item) => isInventoryLocation(item.location))
       .filter((item) => item.valueHr > 0)
       .sort((left, right) => right.valueHr - left.valueHr)
       .slice(0, 12),
     topSharedStash: valuedItems
-      .filter((item) => item.location === "shared-stash" || item.location === "private-stash")
-      .filter((item) => !(item.matchedBy === "token" && market.tokenValues[normalizeMarketName(item.name)]?.kind === "rune"))
+      .filter((item) => isSharedStashLocation(item.location))
+      .filter((item) => !isRuneValuation(item))
       .filter((item) => item.valueHr > 0)
       .sort((left, right) => right.valueHr - left.valueHr)
       .slice(0, 12),
@@ -739,6 +743,8 @@ export const buildGatewayReport = async (saveDir) => {
       totalHr,
       runeHr,
       equippedHr,
+      inventoryHr,
+      characterStashHr,
       stashHr,
       sharedHr,
       characterCount: characters.length,

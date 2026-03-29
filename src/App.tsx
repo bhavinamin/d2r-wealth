@@ -179,6 +179,44 @@ const rulesetClass = (ruleset: "Classic" | "LoD" | "ROTW") => {
   return "ruleset-classic";
 };
 
+const inventoryHrFromReport = (report?: WealthReport | WealthSnapshot | null) => report?.inventoryHr ?? 0;
+const characterStashHrFromReport = (report?: WealthReport | WealthSnapshot | null) => {
+  if (!report) {
+    return 0;
+  }
+
+  if (typeof report.characterStashHr === "number") {
+    return report.characterStashHr;
+  }
+
+  return typeof report.inventoryHr === "number" ? 0 : report.stashHr ?? 0;
+};
+
+const characterStorageHrFromReport = (report?: WealthReport | WealthSnapshot | null) => {
+  if (!report) {
+    return 0;
+  }
+
+  if (typeof report.inventoryHr === "number" || typeof report.characterStashHr === "number") {
+    return Number(((report.inventoryHr ?? 0) + (report.characterStashHr ?? 0)).toFixed(4));
+  }
+
+  return report.stashHr ?? 0;
+};
+
+const inventoryHrForCharacter = (character: WealthReport["characters"][number]) => character.inventoryHr ?? 0;
+const characterStashHrForCharacter = (character: WealthReport["characters"][number]) => {
+  if (typeof character.characterStashHr === "number") {
+    return character.characterStashHr;
+  }
+
+  return typeof character.inventoryHr === "number" ? 0 : character.stashHr;
+};
+
+const totalHrForCharacter = (character: WealthReport["characters"][number]) =>
+  character.totalHr ??
+  Number((character.equippedHr + inventoryHrForCharacter(character) + characterStashHrForCharacter(character)).toFixed(3));
+
 const createPreviewReport = (): WealthReport => {
   const importedAt = new Date().toISOString();
   return {
@@ -186,12 +224,34 @@ const createPreviewReport = (): WealthReport => {
     saveSetId: "preview-save-set",
     totalHr: 4.13,
     runeHr: 1.84,
-    equippedHr: 1.96,
+    equippedHr: 2.38,
+    inventoryHr: 0.25,
+    characterStashHr: 0.36,
     stashHr: 0.61,
-    sharedHr: 1.56,
+    sharedHr: 1.14,
     characters: [
-      { name: "Atti", className: "Sorceress", level: 91, ruleset: "ROTW", equippedHr: 1.96, stashHr: 0.18 },
-      { name: "Raze", className: "Paladin", level: 88, ruleset: "LoD", equippedHr: 0.42, stashHr: 0.09 },
+      {
+        name: "Atti",
+        className: "Sorceress",
+        level: 91,
+        ruleset: "ROTW",
+        equippedHr: 1.96,
+        inventoryHr: 0.14,
+        characterStashHr: 0.19,
+        stashHr: 0.33,
+        totalHr: 2.29,
+      },
+      {
+        name: "Raze",
+        className: "Paladin",
+        level: 88,
+        ruleset: "LoD",
+        equippedHr: 0.42,
+        inventoryHr: 0.11,
+        characterStashHr: 0.17,
+        stashHr: 0.28,
+        totalHr: 0.7,
+      },
     ],
     runeSummary: [
       { name: "Lo", count: 1, looseCount: 1, totalHr: 0.625, valueSource: { type: "rune-market", label: "Live Rune Market" } },
@@ -241,9 +301,11 @@ const createPreviewReport = (): WealthReport => {
       importedAt,
       totalHr: 4.13,
       runeHr: 1.84,
-      equippedHr: 1.96,
+      equippedHr: 2.38,
+      inventoryHr: 0.25,
+      characterStashHr: 0.36,
       stashHr: 0.61,
-      sharedHr: 1.56,
+      sharedHr: 1.14,
       characterCount: 2,
     },
   };
@@ -252,10 +314,50 @@ const createPreviewReport = (): WealthReport => {
 const createPreviewHistory = (): WealthSnapshot[] => {
   const now = Date.now();
   return [
-    { importedAt: new Date(now - 1000 * 60 * 60 * 24 * 5).toISOString(), totalHr: 2.18, runeHr: 0.92, equippedHr: 0.84, stashHr: 0.22, sharedHr: 0.2, characterCount: 2 },
-    { importedAt: new Date(now - 1000 * 60 * 60 * 24 * 3).toISOString(), totalHr: 2.94, runeHr: 1.13, equippedHr: 1.12, stashHr: 0.31, sharedHr: 0.38, characterCount: 2 },
-    { importedAt: new Date(now - 1000 * 60 * 60 * 24 * 1).toISOString(), totalHr: 3.62, runeHr: 1.41, equippedHr: 1.52, stashHr: 0.33, sharedHr: 0.36, characterCount: 2 },
-    { importedAt: new Date(now).toISOString(), totalHr: 4.13, runeHr: 1.84, equippedHr: 1.96, stashHr: 0.61, sharedHr: 1.56, characterCount: 2 },
+    {
+      importedAt: new Date(now - 1000 * 60 * 60 * 24 * 5).toISOString(),
+      totalHr: 2.18,
+      runeHr: 0.92,
+      equippedHr: 0.84,
+      inventoryHr: 0.08,
+      characterStashHr: 0.14,
+      stashHr: 0.22,
+      sharedHr: 1.12,
+      characterCount: 2,
+    },
+    {
+      importedAt: new Date(now - 1000 * 60 * 60 * 24 * 3).toISOString(),
+      totalHr: 2.94,
+      runeHr: 1.13,
+      equippedHr: 1.12,
+      inventoryHr: 0.12,
+      characterStashHr: 0.19,
+      stashHr: 0.31,
+      sharedHr: 1.51,
+      characterCount: 2,
+    },
+    {
+      importedAt: new Date(now - 1000 * 60 * 60 * 24 * 1).toISOString(),
+      totalHr: 3.62,
+      runeHr: 1.41,
+      equippedHr: 1.52,
+      inventoryHr: 0.14,
+      characterStashHr: 0.19,
+      stashHr: 0.33,
+      sharedHr: 1.77,
+      characterCount: 2,
+    },
+    {
+      importedAt: new Date(now).toISOString(),
+      totalHr: 4.13,
+      runeHr: 1.84,
+      equippedHr: 2.38,
+      inventoryHr: 0.25,
+      characterStashHr: 0.36,
+      stashHr: 0.61,
+      sharedHr: 1.14,
+      characterCount: 2,
+    },
   ];
 };
 
@@ -656,7 +758,7 @@ export default function App() {
     const runeStable = Math.abs(next.runeHr - previous.runeHr) < 0.05;
     const characterStashCollapsed =
       next.topCharacterStash.length < previous.topCharacterStash.length &&
-      next.stashHr < previous.stashHr;
+      characterStashHrFromReport(next) < characterStashHrFromReport(previous);
     const equippedRosterShrank = nextEquippedItems.length < previousEquippedItems.length;
 
     return (
@@ -678,9 +780,11 @@ export default function App() {
       ...best,
       totalHr: Math.max(best.totalHr, snapshot.totalHr),
       equippedHr: Math.max(best.equippedHr, snapshot.equippedHr),
+      inventoryHr: Math.max(inventoryHrFromReport(best), inventoryHrFromReport(snapshot)),
+      characterStashHr: Math.max(characterStashHrFromReport(best), characterStashHrFromReport(snapshot)),
       runeHr: Math.max(best.runeHr, snapshot.runeHr),
       sharedHr: Math.max(best.sharedHr, snapshot.sharedHr),
-      stashHr: Math.max(best.stashHr, snapshot.stashHr),
+      stashHr: Math.max(characterStorageHrFromReport(best), characterStorageHrFromReport(snapshot)),
       characterCount: Math.max(best.characterCount, snapshot.characterCount),
     }));
   };
@@ -935,11 +1039,14 @@ export default function App() {
         <section className="deck-frame overview-frame">
           <section className="stats-strip">
             <StatCard label="Account Net Worth" value={formatHr(report?.totalHr ?? 0)} tone="accent" />
-            <StatCard label="Loose Rune Value" value={formatHr(report?.runeHr ?? 0)} />
             <StatCard label="Equipped Gear" value={formatHr(report?.equippedHr ?? 0)} />
-            <StatCard label="Character Storage" value={formatHr(report?.stashHr ?? 0)} />
+            <StatCard label="Inventory" value={formatHr(inventoryHrFromReport(report))} />
+            <StatCard label="Personal Stash" value={formatHr(characterStashHrFromReport(report))} />
             <StatCard label="Shared Stashes" value={formatHr(report?.sharedHr ?? 0)} />
           </section>
+          <p className="stats-note">
+            Total HR = equipped gear + inventory + personal stash + shared stash. Unmatched and low-confidence items stay excluded below.
+          </p>
 
           <section className="dashboard-grid">
             <div className="main-column">
@@ -972,7 +1079,13 @@ export default function App() {
                           <span className={`ruleset-tag ${rulesetClass(character.ruleset)}`}>{character.ruleset}</span>
                         </div>
                         <div className="roster-values">
-                          <b>{formatHr(character.equippedHr)}</b>
+                          <b>{formatHr(totalHrForCharacter(character))}</b>
+                          <span className="roster-total-label">total</span>
+                          <div className="roster-breakdown">
+                            <span>Eq {formatHr(character.equippedHr)}</span>
+                            <span>Inv {formatHr(inventoryHrForCharacter(character))}</span>
+                            <span>Stash {formatHr(characterStashHrForCharacter(character))}</span>
+                          </div>
                         </div>
                       </article>
                     ))}
@@ -995,8 +1108,8 @@ export default function App() {
               {formatHr(market.runeValues.Ber ?? 0)}. Market generated {marketGeneratedAt}.
             </p>
             <p className="footnote">
-              Gear and stash pricing comes from `data/market.xlsx`, translated through the active rune table above. Personal stash is
-              read from the character save. Shared or external stash pages come from imported stash files.
+              Gear and stash pricing comes from `data/market.xlsx`, translated through the active rune table above. Inventory and personal stash
+              come from the character save. Shared or external stash pages come from imported stash files.
             </p>
           </section>
         </section>
@@ -1015,7 +1128,7 @@ export default function App() {
               <section className="panel rune-panel">
                 <div className="panel-header">
                   <h3>Rune Inventory</h3>
-                  <span>{report?.runeSummary.length ?? 0} rune types</span>
+                  <span>{formatHr(report?.runeHr ?? 0)} in loose rune value</span>
                 </div>
                 <div className="rune-grid rune-grid-compact">
                   {(report?.runeSummary ?? []).map((rune) => (
