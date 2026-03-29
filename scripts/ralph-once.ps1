@@ -472,7 +472,7 @@ function Get-PrReviewStatus([string]$BranchName) {
         }
     }
 
-    $mergeBlockedByReview = $pr.reviewDecision -eq "CHANGES_REQUESTED" -or $requestedReviewers.Count -gt 0
+    $mergeBlockedByReview = $pr.reviewDecision -eq "CHANGES_REQUESTED"
     $mergeBlockedByChecks = $checksState -eq "failing" -or $checksState -eq "pending"
     $mergeReady = (-not $pr.isDraft) -and (-not $mergeBlockedByReview) -and (-not $mergeBlockedByChecks)
 
