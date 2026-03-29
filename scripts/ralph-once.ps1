@@ -7,6 +7,8 @@ param(
     [string]$CommitPrefix = "ralph",
     [string]$RemoteName = "origin",
     [string]$ReviewTriggerComment = "",
+    [bool]$EnableAutoMerge = $true,
+    [string]$NotificationHandle = "",
     [switch]$ShowPrompt
 )
 
@@ -70,6 +72,10 @@ function Get-StatusPaths {
 function Get-RepoInfo {
     $repoInfoJson = gh repo view --json nameWithOwner,defaultBranchRef
     return $repoInfoJson | ConvertFrom-Json
+}
+
+function Get-GitHubLogin {
+    return "$(gh api user --jq .login)".Trim()
 }
 
 function Get-CurrentBranch {
@@ -158,7 +164,8 @@ Source:
 Workflow contract:
 - Implement exactly this task on its own branch.
 - Run local verification before pushing.
-- Open a draft PR that references and closes this issue on merge.
+- Open a PR that references and closes this issue on merge.
+- Mark the PR ready for review and enable auto-merge after successful CI unless human follow-up is required.
 - Treat unresolved GitHub review findings as merge blockers; address code review feedback before a PR is merged.
 "@
 }
@@ -270,7 +277,14 @@ Execution contract:
 6. Do not create issues, switch branches, commit, push, open PRs, or update progress.txt; the wrapper script owns that workflow.
 7. $verificationLine
 8. If GitHub review findings already exist on the branch or PR, address them before considering the work ready for merge.
-9. If you need to add notes for the wrapper operator, write them to stdout at the end under a short heading named NOTES.
+9. If you need human help, end stdout with exactly this machine-readable section:
+NOTES
+HUMAN_REQUIRED: yes
+HUMAN_REASON: <short reason>
+
+If no human help is needed, end stdout with:
+NOTES
+HUMAN_REQUIRED: no
 
 Task selection rule used by the wrapper:
 - first unchecked markdown checkbox task in the PRD
@@ -290,7 +304,7 @@ function Invoke-ExternalCommand([string]$CommandText, [string]$FailureMessage) {
     }
 }
 
-function Invoke-Ralph([string]$CommandTemplate, [string]$RepoRoot, [string]$PromptFile) {
+function Invoke-Ralph([string]$CommandTemplate, [string]$RepoRoot, [string]$PromptFile, [string]$OutputFile) {
     if ($CommandTemplate) {
         $expanded = $CommandTemplate.Replace("{REPO_ROOT}", $RepoRoot).Replace("{PROMPT_FILE}", $PromptFile)
         Invoke-ExternalCommand -CommandText $expanded -FailureMessage "Agent command failed with exit code $LASTEXITCODE."
@@ -298,7 +312,7 @@ function Invoke-Ralph([string]$CommandTemplate, [string]$RepoRoot, [string]$Prom
     }
 
     Write-Host "Running: codex exec - -C `"$RepoRoot`" --dangerously-bypass-approvals-and-sandbox"
-    Get-Content -LiteralPath $PromptFile -Raw | codex exec - -C $RepoRoot --dangerously-bypass-approvals-and-sandbox
+    Get-Content -LiteralPath $PromptFile -Raw | codex exec - -C $RepoRoot --dangerously-bypass-approvals-and-sandbox | Tee-Object -FilePath $OutputFile
     if ($LASTEXITCODE -ne 0) {
         throw "Codex command failed with exit code $LASTEXITCODE."
     }
@@ -407,14 +421,14 @@ $verificationText
 "@
 }
 
-function Ensure-DraftPr([string]$RemoteName, [string]$BaseBranch, [string]$BranchName, [string]$Title, [int]$IssueNumber, [string]$Task, [string]$VerificationCommand) {
+function Ensure-Pr([string]$RemoteName, [string]$BaseBranch, [string]$BranchName, [string]$Title, [int]$IssueNumber, [string]$Task, [string]$VerificationCommand) {
     $existingPr = Find-OpenPrForBranch -BranchName $BranchName
     if ($existingPr) {
         return $existingPr
     }
 
     $prBody = New-PrBody -IssueNumber $IssueNumber -Task $Task -VerificationCommand $VerificationCommand
-    $prUrl = "$(gh pr create --draft --base $BaseBranch --head $BranchName --title $Title --body $prBody)".Trim()
+    $prUrl = "$(gh pr create --base $BaseBranch --head $BranchName --title $Title --body $prBody)".Trim()
     return [pscustomobject]@{
         url   = $prUrl
         title = $Title
@@ -448,7 +462,33 @@ function Get-PrReviewStatus([string]$BranchName) {
 
     $checksState = "not_reported"
     if ($pr.statusCheckRollup) {
-        $states = @($pr.statusCheckRollup | ForEach-Object { $_.state } | Where-Object { $_ })
+        $states = New-Object System.Collections.Generic.List[string]
+        foreach ($check in @($pr.statusCheckRollup)) {
+            if ($check.state) {
+                [void]$states.Add([string]$check.state)
+                continue
+            }
+
+            if ($check.status -and $check.status -ne "COMPLETED") {
+                [void]$states.Add("PENDING")
+                continue
+            }
+
+            if ($check.conclusion) {
+                switch ([string]$check.conclusion) {
+                    "SUCCESS" { [void]$states.Add("SUCCESS") }
+                    "NEUTRAL" { [void]$states.Add("SUCCESS") }
+                    "SKIPPED" { [void]$states.Add("SUCCESS") }
+                    "FAILURE" { [void]$states.Add("FAILURE") }
+                    "ERROR" { [void]$states.Add("ERROR") }
+                    "TIMED_OUT" { [void]$states.Add("FAILURE") }
+                    "ACTION_REQUIRED" { [void]$states.Add("FAILURE") }
+                    "CANCELLED" { [void]$states.Add("FAILURE") }
+                    default { [void]$states.Add([string]$check.conclusion) }
+                }
+            }
+        }
+
         if ($states.Count -gt 0) {
             if ($states -contains "FAILURE" -or $states -contains "ERROR") {
                 $checksState = "failing"
@@ -477,6 +517,95 @@ function Get-PrReviewStatus([string]$BranchName) {
     }
 }
 
+function Set-PrAutoMerge([string]$BranchName) {
+    gh pr ready $BranchName | Out-Null
+    gh pr merge $BranchName --auto --squash --delete-branch | Out-Null
+}
+
+function Get-AgentHumanRequirement([string]$OutputFile) {
+    $result = [pscustomobject]@{
+        required = $false
+        reason = ""
+    }
+
+    if (-not (Test-Path -LiteralPath $OutputFile)) {
+        return $result
+    }
+
+    $content = Get-Content -LiteralPath $OutputFile -Raw
+    $notesMatch = [regex]::Match($content, '(?ms)^NOTES\s*(.+)$')
+    if (-not $notesMatch.Success) {
+        return $result
+    }
+
+    $notes = $notesMatch.Groups[1].Value
+    $requiredMatch = [regex]::Match($notes, '(?im)^\s*HUMAN_REQUIRED:\s*(yes|no)\s*$')
+    if ($requiredMatch.Success -and $requiredMatch.Groups[1].Value.ToLowerInvariant() -eq "yes") {
+        $result.required = $true
+    }
+
+    $reasonMatch = [regex]::Match($notes, '(?im)^\s*HUMAN_REASON:\s*(.+?)\s*$')
+    if ($reasonMatch.Success) {
+        $result.reason = $reasonMatch.Groups[1].Value.Trim()
+    }
+
+    return $result
+}
+
+function Get-HumanNotificationMessage($AgentHumanRequirement, $ReviewStatus, [string]$Handle, [string]$Task, [string]$BranchName) {
+    $reasons = New-Object System.Collections.Generic.List[string]
+
+    if ($AgentHumanRequirement.required) {
+        $reasonText = if ($AgentHumanRequirement.reason) { $AgentHumanRequirement.reason } else { "Codex flagged human follow-up." }
+        [void]$reasons.Add("Codex requested human follow-up: $reasonText")
+    }
+
+    if ($ReviewStatus.reviewDecision -eq "CHANGES_REQUESTED") {
+        [void]$reasons.Add("GitHub review is requesting changes.")
+    }
+
+    if ($ReviewStatus.checksState -eq "failing") {
+        [void]$reasons.Add("PR checks are failing.")
+    }
+
+    if ($reasons.Count -eq 0) {
+        return $null
+    }
+
+    $mentionPrefix = if ($Handle) { "@$Handle " } else { "" }
+    return @"
+$mentionPrefix human attention is required for this autonomous task.
+
+Task:
+- $Task
+
+Branch:
+- $BranchName
+
+Reasons:
+$($reasons | ForEach-Object { "- $_" } | Out-String)
+"@.Trim()
+}
+
+function Send-HumanNotification([string]$BranchName, [string]$Message) {
+    if (-not $Message) {
+        return
+    }
+
+    $tempMessageFile = Join-Path ([System.IO.Path]::GetTempPath()) ("ralph-once-notify-" + [System.Guid]::NewGuid().ToString() + ".txt")
+    try {
+        Set-Content -LiteralPath $tempMessageFile -Value $Message -Encoding UTF8
+        gh pr comment $BranchName --body-file $tempMessageFile | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to post human notification comment."
+        }
+    } finally {
+        if (Test-Path -LiteralPath $tempMessageFile) {
+            Remove-Item -LiteralPath $tempMessageFile -Force
+        }
+    }
+}
+
 Assert-CommandAvailable -Name "git"
 Assert-CommandAvailable -Name "gh"
 Assert-CommandAvailable -Name "codex"
@@ -490,6 +619,9 @@ $baselinePaths = Get-StatusPaths
 
 $repoInfo = Get-RepoInfo
 $defaultBranch = $repoInfo.defaultBranchRef.name
+if (-not $NotificationHandle) {
+    $NotificationHandle = Get-GitHubLogin
+}
 Assert-OnDefaultBranch -DefaultBranch $defaultBranch
 Sync-DefaultBranch -RemoteName $RemoteName -DefaultBranch $defaultBranch
 
@@ -506,10 +638,11 @@ if ($ShowPrompt) {
 }
 
 $tempPromptFile = Join-Path ([System.IO.Path]::GetTempPath()) ("ralph-once-" + [System.Guid]::NewGuid().ToString() + ".txt")
+$tempOutputFile = Join-Path ([System.IO.Path]::GetTempPath()) ("ralph-once-output-" + [System.Guid]::NewGuid().ToString() + ".txt")
 Set-Content -LiteralPath $tempPromptFile -Value $prompt -Encoding UTF8
 
 try {
-    Invoke-Ralph -CommandTemplate $AgentCommandTemplate -RepoRoot $repoRoot -PromptFile $tempPromptFile
+    Invoke-Ralph -CommandTemplate $AgentCommandTemplate -RepoRoot $repoRoot -PromptFile $tempPromptFile -OutputFile $tempOutputFile
 
     $changedPaths = Get-ChangedPaths -BaselinePaths $baselinePaths
     if (-not $changedPaths -or $changedPaths.Count -eq 0) {
@@ -526,9 +659,15 @@ try {
     git commit -m $commitMessage | Out-Null
     git push -u $RemoteName $branchName | Out-Null
 
-    $pr = Ensure-DraftPr -RemoteName $RemoteName -BaseBranch $defaultBranch -BranchName $branchName -Title $commitMessage -IssueNumber $issue.number -Task $task -VerificationCommand $verificationToRun
+    $pr = Ensure-Pr -RemoteName $RemoteName -BaseBranch $defaultBranch -BranchName $branchName -Title $commitMessage -IssueNumber $issue.number -Task $task -VerificationCommand $verificationToRun
     Invoke-PrReviewTrigger -BranchName $branchName -ReviewTriggerComment $ReviewTriggerComment
+    if ($EnableAutoMerge) {
+        Set-PrAutoMerge -BranchName $branchName
+    }
     $reviewStatus = Get-PrReviewStatus -BranchName $branchName
+    $agentHumanRequirement = Get-AgentHumanRequirement -OutputFile $tempOutputFile
+    $notificationMessage = Get-HumanNotificationMessage -AgentHumanRequirement $agentHumanRequirement -ReviewStatus $reviewStatus -Handle $NotificationHandle -Task $task -BranchName $branchName
+    Send-HumanNotification -BranchName $branchName -Message $notificationMessage
 
     Write-Host "Completed task: $task"
     Write-Host "Issue: #$($issue.number) $($issue.url)"
@@ -540,9 +679,17 @@ try {
     if ($reviewStatus.requestedReviewers.Count -gt 0) {
         Write-Host "PR pending reviewers: $($reviewStatus.requestedReviewers -join ', ')"
     }
+    Write-Host "Auto-merge enabled: $EnableAutoMerge"
+    Write-Host "Human follow-up required: $($agentHumanRequirement.required)"
+    if ($agentHumanRequirement.reason) {
+        Write-Host "Human follow-up reason: $($agentHumanRequirement.reason)"
+    }
     Write-Host "Merge ready: $($reviewStatus.mergeReady)"
 } finally {
     if (Test-Path -LiteralPath $tempPromptFile) {
         Remove-Item -LiteralPath $tempPromptFile -Force
+    }
+    if (Test-Path -LiteralPath $tempOutputFile) {
+        Remove-Item -LiteralPath $tempOutputFile -Force
     }
 }
