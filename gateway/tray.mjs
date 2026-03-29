@@ -44,6 +44,9 @@ const notify = (title, body, connected = backendConnected) => {
   new Notification({ title, body, icon: connected ? trayIconPaths.connected : trayIconPaths.disconnected }).show();
 };
 
+const pairingReadinessStatus = async ({ timeoutMs = 12000, intervalMs = 1000 } = {}) =>
+  waitForGatewayStatus((status) => Boolean(status.saveValidation?.checkedAt), { timeoutMs, intervalMs });
+
 const applyAutoStart = (enabled) => {
   app.setLoginItemSettings({
     openAtLogin: Boolean(enabled),
@@ -101,6 +104,11 @@ const pairGatewaySync = async () => {
       const backendUrl = String(settings.backendUrl ?? "").trim().replace(/\/+$/, "");
       if (!backendUrl) {
         throw new Error("Gateway backend URL is not configured.");
+      }
+
+      const gatewayStatus = await pairingReadinessStatus();
+      if (!gatewayStatus?.saveValidation?.valid) {
+        throw new Error(gatewayStatus?.saveValidation?.message || "Choose a valid Diablo II save folder before pairing.");
       }
 
       if (settings.syncToken) {
@@ -168,7 +176,17 @@ const handleProtocolLaunch = async (rawUrl) => {
       writeGatewaySettings({ ...currentSettings(), backendUrl }, settingsFilePath());
     }
     await showSettingsWindow();
-    await pairGatewaySync();
+    const gatewayStatus = await pairingReadinessStatus({ timeoutMs: 6000, intervalMs: 500 });
+    if (gatewayStatus?.saveValidation?.valid) {
+      await pairGatewaySync();
+      return;
+    }
+    notify(
+      "Finish Gateway Setup",
+      gatewayStatus?.saveValidation?.message || "Choose your Diablo II save folder, save it, then sign in with Discord.",
+      false,
+    );
+    await broadcastStatus();
   } catch {
   }
 };
