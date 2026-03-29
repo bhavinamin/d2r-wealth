@@ -351,6 +351,13 @@ const gatherRuneCounts = (items: D2Item[], counts: Map<string, { count: number; 
   }
 };
 
+const isInventoryLocation = (location: ItemLocation) => location === "inventory" || location === "cube";
+const isCharacterStashLocation = (location: ItemLocation) => location === "character-stash";
+const isSharedStashLocation = (location: ItemLocation) => location === "shared-stash" || location === "private-stash";
+const isRuneValuation = (item: ValuedItem) => item.matchedBy === "token" && market.tokenValues[normalizeMarketName(item.name)]?.kind === "rune";
+const sumItemValues = (items: ValuedItem[]) => items.reduce((total, item) => total + item.valueHr, 0);
+const roundHr = (value: number, digits = 4) => Number(value.toFixed(digits));
+
 export const parseAccountFiles = async (files: FileList | File[]): Promise<WealthReport> => {
   await ensureConstantDataLoaded();
   const importedAt = new Date().toISOString();
@@ -400,15 +407,21 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
     valuedItems.push(...characterValues);
     collectWarnings(characterValues, valuationWarnings, unmatchedItems);
 
+    const equippedHr = roundHr(sumItemValues(characterValues.filter((item) => item.location === "equipped")), 3);
+    const inventoryHr = roundHr(sumItemValues(characterValues.filter((item) => isInventoryLocation(item.location))), 3);
+    const characterStashHr = roundHr(sumItemValues(characterValues.filter((item) => isCharacterStashLocation(item.location))), 3);
+    const stashHr = roundHr(inventoryHr + characterStashHr, 3);
+
     characterSummaries.push({
       name: character.header.name,
       className: character.header.class,
       level: character.header.level,
       ruleset: classifyRuleset(character, sourceNames),
-      equippedHr: Number(characterValues.filter((item) => item.location === "equipped").reduce((a, b) => a + b.valueHr, 0).toFixed(3)),
-      stashHr: Number(
-        characterValues.filter((item) => item.location !== "equipped").reduce((a, b) => a + b.valueHr, 0).toFixed(3),
-      ),
+      equippedHr,
+      inventoryHr,
+      characterStashHr,
+      stashHr,
+      totalHr: roundHr(equippedHr + stashHr, 3),
     });
   }
 
@@ -436,26 +449,13 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
     }))
     .sort((left, right) => right.totalHr - left.totalHr || right.count - left.count);
 
-  const totalHr = Number(valuedItems.reduce((total, item) => total + item.valueHr, 0).toFixed(4));
-  const runeHr = Number(
-    valuedItems
-      .filter((item) => item.matchedBy === "token" && market.tokenValues[normalizeMarketName(item.name)]?.kind === "rune")
-      .reduce((total, item) => total + item.valueHr, 0)
-      .toFixed(4),
-  );
-  const equippedHr = Number(valuedItems.filter((item) => item.location === "equipped").reduce((a, b) => a + b.valueHr, 0).toFixed(4));
-  const stashHr = Number(
-    valuedItems
-      .filter((item) => item.location === "character-stash" || item.location === "inventory" || item.location === "cube")
-      .reduce((a, b) => a + b.valueHr, 0)
-      .toFixed(4),
-  );
-  const sharedHr = Number(
-    valuedItems
-      .filter((item) => item.location === "shared-stash" || item.location === "private-stash")
-      .reduce((a, b) => a + b.valueHr, 0)
-      .toFixed(4),
-  );
+  const totalHr = roundHr(sumItemValues(valuedItems));
+  const runeHr = roundHr(sumItemValues(valuedItems.filter(isRuneValuation)));
+  const equippedHr = roundHr(sumItemValues(valuedItems.filter((item) => item.location === "equipped")));
+  const inventoryHr = roundHr(sumItemValues(valuedItems.filter((item) => isInventoryLocation(item.location))));
+  const characterStashHr = roundHr(sumItemValues(valuedItems.filter((item) => isCharacterStashLocation(item.location))));
+  const stashHr = roundHr(inventoryHr + characterStashHr);
+  const sharedHr = roundHr(sumItemValues(valuedItems.filter((item) => isSharedStashLocation(item.location))));
   const saveSetId = crypto
     .createHash("sha256")
     .update(
@@ -477,22 +477,25 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
     totalHr,
     runeHr,
     equippedHr,
+    inventoryHr,
+    characterStashHr,
     stashHr,
     sharedHr,
     characters: characterSummaries,
     runeSummary,
     topCharacterStash: valuedItems
-      .filter((item) => item.location === "character-stash")
+      .filter((item) => isCharacterStashLocation(item.location))
       .filter((item) => item.valueHr > 0)
       .sort((left, right) => right.valueHr - left.valueHr)
       .slice(0, 12),
     topInventory: valuedItems
-      .filter((item) => item.location === "inventory" || item.location === "cube")
+      .filter((item) => isInventoryLocation(item.location))
       .filter((item) => item.valueHr > 0)
       .sort((left, right) => right.valueHr - left.valueHr)
       .slice(0, 12),
     topSharedStash: valuedItems
-      .filter((item) => item.location === "shared-stash" || item.location === "private-stash")
+      .filter((item) => isSharedStashLocation(item.location))
+      .filter((item) => !isRuneValuation(item))
       .filter((item) => item.valueHr > 0)
       .sort((left, right) => right.valueHr - left.valueHr)
       .slice(0, 12),
@@ -509,6 +512,8 @@ export const parseAccountFiles = async (files: FileList | File[]): Promise<Wealt
       totalHr,
       runeHr,
       equippedHr,
+      inventoryHr,
+      characterStashHr,
       stashHr,
       sharedHr,
       characterCount: characters.length,

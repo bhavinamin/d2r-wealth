@@ -8,6 +8,19 @@
     "level": 90,
     "items": [
       {
+        "template": "harlequin-crest",
+        "location": "equipped",
+        "equippedId": 1,
+        "x": 0,
+        "y": 0
+      },
+      {
+        "template": "ist-rune",
+        "location": "inventory",
+        "x": 1,
+        "y": 0
+      },
+      {
         "template": "key-of-hatred",
         "location": "character-stash",
         "x": 0,
@@ -62,9 +75,11 @@
   "expectedReport": {
     "importedAt": "2026-03-29T16:00:00.000Z",
     "saveSetId": "15304a871e250089e79f0bbe06f82019b57c60c1fd2ec7cc0a8ef72b2ecbe8e7",
-    "totalHr": 3.0313,
+    "totalHr": 3.125,
     "runeHr": 3,
-    "equippedHr": 0,
+    "equippedHr": 0.0938,
+    "inventoryHr": 0,
+    "characterStashHr": 0.0313,
     "stashHr": 0.0313,
     "sharedHr": 3,
     "characters": [
@@ -73,8 +88,11 @@
         "className": "Sorceress",
         "level": 90,
         "ruleset": "LoD",
-        "equippedHr": 0,
-        "stashHr": 0.031
+        "equippedHr": 0.094,
+        "inventoryHr": 0,
+        "characterStashHr": 0.031,
+        "stashHr": 0.031,
+        "totalHr": 0.125
       }
     ],
     "runeSummary": [
@@ -151,6 +169,24 @@
         }
       },
       {
+        "id": "FixtureSorc-FixtureSorc equipped 1-Harlequin Crest",
+        "name": "Harlequin Crest",
+        "quantity": 1,
+        "owner": "FixtureSorc",
+        "location": "equipped",
+        "source": "FixtureSorc equipped 1",
+        "sheet": "UniqueSet Market",
+        "valueHr": 0.09375,
+        "tradeValue": "Mal",
+        "matchedBy": "exact",
+        "valueSource": {
+          "type": "workbook",
+          "label": "Workbook: UniqueSet Market",
+          "sheet": "UniqueSet Market",
+          "basis": "sell"
+        }
+      },
+      {
         "id": "FixtureSorc-FixtureSorc stash 1-Key of Hate",
         "name": "Key of Hate",
         "quantity": 1,
@@ -167,20 +203,65 @@
           "sheet": "Endgame Market",
           "basis": "sell"
         }
+      },
+      {
+        "id": "FixtureSorc-FixtureSorc equipped 2-Unknown Item",
+        "name": "Unknown Item",
+        "quantity": 1,
+        "owner": "FixtureSorc",
+        "location": "equipped",
+        "source": "FixtureSorc equipped 2",
+        "valueHr": 0,
+        "matchedBy": "unmatched",
+        "valueSource": {
+          "type": "unresolved",
+          "label": "Unresolved Market Value",
+          "detail": "No workbook, token, or derived pricing match was found for this item."
+        }
       }
     ],
-    "unmatchedItems": [],
+    "unmatchedItems": [
+      {
+        "kind": "unresolved",
+        "owner": "FixtureSorc",
+        "name": "Unknown Item",
+        "location": "equipped",
+        "source": "FixtureSorc equipped 2",
+        "valueSource": {
+          "type": "unresolved",
+          "label": "Unresolved Market Value",
+          "detail": "No workbook, token, or derived pricing match was found for this item."
+        },
+        "includedInTotal": false
+      }
+    ],
     "valuationWarnings": {
-      "totalCount": 0,
-      "unresolvedCount": 0,
+      "totalCount": 1,
+      "unresolvedCount": 1,
       "ambiguousCount": 0,
-      "items": []
+      "items": [
+        {
+          "kind": "unresolved",
+          "owner": "FixtureSorc",
+          "name": "Unknown Item",
+          "location": "equipped",
+          "source": "FixtureSorc equipped 2",
+          "valueSource": {
+            "type": "unresolved",
+            "label": "Unresolved Market Value",
+            "detail": "No workbook, token, or derived pricing match was found for this item."
+          },
+          "includedInTotal": false
+        }
+      ]
     },
     "snapshot": {
       "importedAt": "2026-03-29T16:00:00.000Z",
-      "totalHr": 3.0313,
+      "totalHr": 3.125,
       "runeHr": 3,
-      "equippedHr": 0,
+      "equippedHr": 0.0938,
+      "inventoryHr": 0,
+      "characterStashHr": 0.0313,
       "stashHr": 0.0313,
       "sharedHr": 3,
       "characterCount": 1
