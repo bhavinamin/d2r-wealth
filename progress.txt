@@ -140,3 +140,13 @@ FILES:
  - test/fixtures/real-save-account/
  - test/offline-save-parser.test.mjs
 
+[2026-03-29 18:08:18 -04:00] TASK: Store and update parsed data in backend DB, with one backend account per save file.
+ISSUE: #57 https://github.com/bhavinamin/d2r-wealth/issues/57
+BRANCH: task/57-store-and-update-parsed-data-in-backend-db-with
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - backend/db.mjs
+ - backend/server.mjs
+ - gateway/service.mjs
+ - test/backend-gateway.integration.test.mjs
+

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
 import { URL } from "node:url";
-import { buildGatewayReport } from "./report.mjs";
+import { buildGatewayReport, parseOfflineSaveData } from "./report.mjs";
 import { normalizeGatewaySettings, readGatewaySettings, writeGatewaySettings } from "./settings.mjs";
 
 const ALLOWED_EXTENSIONS = new Set([".d2s", ".d2i", ".sss", ".cst"]);
@@ -342,6 +342,7 @@ export class GatewayService {
           throw new Error(this.lastSaveValidation.message);
         }
         const report = await this.buildReport();
+        const parsedSaveData = report.parsedSaveData ?? await this.buildParsedSaveData();
         this.recordSyncEvent({
           scope: "gateway-sync",
           event: "ingest-attempt",
@@ -361,6 +362,7 @@ export class GatewayService {
           body: JSON.stringify({
             clientId: this.settings.clientId,
             report,
+            parsedSaveData,
           }),
         });
 
@@ -395,6 +397,12 @@ export class GatewayService {
         this.lastBackendSyncAt = new Date().toISOString();
         this.lastBackendSyncError = null;
         this.clearRetrySchedule();
+        if (backendIngest?.accountId && backendIngest.accountId !== this.settings.accountId) {
+          this.settings.accountId = backendIngest.accountId;
+          if (this.settingsPath) {
+            writeGatewaySettings(this.settings, this.settingsPath);
+          }
+        }
         this.lastSuccessfulAccountUpdateAt =
           backendIngest?.lastSuccessfulAccountUpdateAt ?? responseBody?.latest?.receivedAt ?? this.lastSuccessfulAccountUpdateAt;
         this.recordSyncEvent({
@@ -566,6 +574,10 @@ export class GatewayService {
 
   async buildReport() {
     return buildGatewayReport(this.settings.saveDir);
+  }
+
+  async buildParsedSaveData() {
+    return parseOfflineSaveData(this.settings.saveDir);
   }
 
   async handleRequest(request, response) {

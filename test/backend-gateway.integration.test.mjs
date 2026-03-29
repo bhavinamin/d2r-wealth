@@ -126,6 +126,35 @@ const createReport = (suffix, totalHr, importedAt, saveSetId = "save-set-alpha")
       totalHr,
     },
   ],
+  parsedSaveData: {
+    saveSetId,
+    characters: [
+      {
+        fileName: `Sorc${suffix}.d2s`,
+        name: `Sorc ${suffix}`,
+        className: "Sorceress",
+        level: 91,
+        equippedItems: [{ name: `Spirit ${suffix}`, location: "equipped" }],
+        inventoryItems: [{ name: `Charm ${suffix}`, location: "inventory" }],
+        cubeItems: [],
+        stashItems: [{ name: `Shako ${suffix}`, location: "character-stash" }],
+      },
+    ],
+    stashes: [
+      {
+        fileName: `Shared${suffix}.d2i`,
+        kind: "shared",
+        pages: [
+          {
+            pageIndex: 0,
+            name: `Page ${suffix}`,
+            items: [{ name: `Ber ${suffix}`, location: "shared-stash" }],
+          },
+        ],
+        materialItems: [{ name: `Rune ${suffix}`, location: "shared-stash" }],
+      },
+    ],
+  },
   snapshot: {
     totalHr,
     equippedHr: Number((totalHr * 0.2).toFixed(2)),
@@ -162,6 +191,7 @@ const loadIntegrationContext = async (seed) => {
     backendBaseUrl: `http://127.0.0.1:${backendAddress.port}`,
     close,
     db,
+    user,
     account,
     sessionCookie: `d2w_session=${encodeURIComponent(session.id)}`,
     tempRoot,
@@ -385,6 +415,9 @@ test("gateway sync covers token-based ingest, latest/history reads, and disconne
   assert.equal(latestBody.clientId, "desktop-alpha");
   assert.equal(latestBody.report.totalHr, 18.75);
   assert.equal(latestBody.report.characters[0].name, "Sorc B");
+  assert.equal(latestBody.parsedSaveData.characters[0].fileName, "SorcB.d2s");
+  assert.equal(latestBody.parsedSaveData.characters[0].stashItems[0].name, "Shako B");
+  assert.equal(latestBody.parsedSaveData.stashes[0].fileName, "SharedB.d2i");
   assert.equal(latestBody.lastSuccessfulAccountUpdateAt, latestBody.receivedAt);
 
   const { response: historyResponse, body: historyBody } = await fetchJson(
@@ -452,6 +485,108 @@ test("gateway sync covers token-based ingest, latest/history reads, and disconne
   );
   assert.equal(loggedOutReadResponse.status, 401);
   assert.match(loggedOutReadBody.error, /Authentication required/);
+});
+
+test("backend stores parsed save data per save-set account and updates rows on re-sync", async (t) => {
+  const ctx = await loadIntegrationContext("save-set-accounts");
+  t.after(ctx.close);
+
+  const firstPairing = await createPairing(ctx.backendBaseUrl, "desktop-alpha");
+  await approvePairing(ctx.backendBaseUrl, firstPairing.pairingId, ctx.sessionCookie);
+  const { response: firstClaimResponse, body: firstClaim } = await claimPairing(
+    ctx.backendBaseUrl,
+    firstPairing.pairingId,
+    firstPairing.pairingSecret,
+  );
+  assert.equal(firstClaimResponse.status, 200);
+
+  const firstSaveDir = path.join(ctx.tempRoot, "save-set-alpha");
+  fs.mkdirSync(firstSaveDir, { recursive: true });
+  fs.writeFileSync(path.join(firstSaveDir, "hero.d2s"), "fixture", "utf8");
+
+  const alphaService = new GatewayService({
+    settings: {
+      host: "127.0.0.1",
+      port: 3192,
+      saveDir: firstSaveDir,
+      autoStart: false,
+      dashboardUrl: "http://127.0.0.1:4173",
+      backendUrl: ctx.backendBaseUrl,
+      accountId: ctx.account.id,
+      clientId: firstClaim.clientId,
+      syncToken: firstClaim.gatewayToken,
+    },
+  });
+
+  let alphaReport = createReport("Alpha", 9.5, "2026-03-29T12:20:00.000Z", "save-set-alpha");
+  alphaService.buildReport = async () => alphaReport;
+
+  await alphaService.syncToBackend();
+  const alphaAccountId = alphaService.settings.accountId;
+  assert.equal(ctx.db.listAccountsForUser(ctx.user.id).length, 1);
+  assert.equal(
+    ctx.db.getDatabase().prepare("SELECT COUNT(*) AS count FROM account_parsed_characters WHERE account_id = ?").get(alphaAccountId).count,
+    1,
+  );
+
+  alphaReport = createReport("Alpha", 10.75, "2026-03-29T12:25:00.000Z", "save-set-alpha");
+  alphaReport.characters[0].level = 93;
+  alphaReport.parsedSaveData.characters[0].level = 93;
+  alphaReport.parsedSaveData.characters[0].stashItems = [{ name: "Arachnid Mesh", location: "character-stash" }];
+  await alphaService.syncToBackend();
+
+  const alphaLatest = ctx.db.readAccountLatest(alphaAccountId);
+  assert.equal(alphaLatest.accountId, alphaAccountId);
+  assert.equal(alphaLatest.parsedSaveData.characters[0].level, 93);
+  assert.equal(alphaLatest.parsedSaveData.characters[0].stashItems[0].name, "Arachnid Mesh");
+  assert.equal(
+    ctx.db.getDatabase().prepare("SELECT COUNT(*) AS count FROM account_parsed_characters WHERE account_id = ?").get(alphaAccountId).count,
+    1,
+  );
+  assert.equal(ctx.db.listAccountsForUser(ctx.user.id).length, 1);
+
+  const secondPairing = await createPairing(ctx.backendBaseUrl, "desktop-beta");
+  await approvePairing(ctx.backendBaseUrl, secondPairing.pairingId, ctx.sessionCookie);
+  const { response: secondClaimResponse, body: secondClaim } = await claimPairing(
+    ctx.backendBaseUrl,
+    secondPairing.pairingId,
+    secondPairing.pairingSecret,
+  );
+  assert.equal(secondClaimResponse.status, 200);
+
+  const secondSaveDir = path.join(ctx.tempRoot, "save-set-beta");
+  fs.mkdirSync(secondSaveDir, { recursive: true });
+  fs.writeFileSync(path.join(secondSaveDir, "hero.d2s"), "fixture", "utf8");
+
+  const betaService = new GatewayService({
+    settings: {
+      host: "127.0.0.1",
+      port: 3193,
+      saveDir: secondSaveDir,
+      autoStart: false,
+      dashboardUrl: "http://127.0.0.1:4173",
+      backendUrl: ctx.backendBaseUrl,
+      accountId: alphaAccountId,
+      clientId: secondClaim.clientId,
+      syncToken: secondClaim.gatewayToken,
+    },
+  });
+
+  betaService.buildReport = async () => createReport("Beta", 7.25, "2026-03-29T12:30:00.000Z", "save-set-beta");
+  await betaService.syncToBackend();
+
+  const betaAccountId = betaService.settings.accountId;
+  assert.notEqual(betaAccountId, alphaAccountId);
+  const accounts = ctx.db.listAccountsForUser(ctx.user.id);
+  assert.equal(accounts.length, 2);
+  assert.deepEqual(
+    accounts.map((account) => account.save_set_id).sort(),
+    ["save-set-alpha", "save-set-beta"],
+  );
+
+  const betaLatest = ctx.db.readAccountLatest(betaAccountId);
+  assert.equal(betaLatest.parsedSaveData.characters[0].fileName, "SorcBeta.d2s");
+  assert.equal(betaLatest.parsedSaveData.stashes[0].fileName, "SharedBeta.d2i");
 });
 
 test("gateway performs an initial sync on startup once a valid token and save folder are present", async (t) => {
