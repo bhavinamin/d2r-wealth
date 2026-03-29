@@ -6,8 +6,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "d2-wealth-integration-"));
-const backendDbPath = path.join(tempRoot, "backend.sqlite");
-process.env.D2_BACKEND_DB_PATH = backendDbPath;
+process.env.D2_BACKEND_DB_PATH = path.join(tempRoot, "backend.sqlite");
 process.env.D2_APP_REDIRECT_URI = "http://127.0.0.1:4173";
 
 const serverModuleUrl = `${pathToFileURL(path.join(process.cwd(), "backend", "server.mjs")).href}?integration=1`;
@@ -16,7 +15,7 @@ const gatewayModuleUrl = `${pathToFileURL(path.join(process.cwd(), "gateway", "s
 
 const { createBackendServer } = await import(serverModuleUrl);
 const { GatewayService } = await import(gatewayModuleUrl);
-const { createSession, getDatabase, listAccountsForUser, readAccountClients, upsertDiscordUser } = await import(dbModuleUrl);
+const db = await import(dbModuleUrl);
 
 const fetchJson = async (url, options = {}) => {
   const response = await fetch(url, options);
@@ -25,10 +24,10 @@ const fetchJson = async (url, options = {}) => {
   return { response, body };
 };
 
-const createReport = (suffix, totalHr, importedAt) => ({
+const createReport = (suffix, totalHr, importedAt, saveSetId = "save-set-alpha") => ({
   importedAt,
   totalHr,
-  saveSetId: "save-set-alpha",
+  saveSetId,
   characters: [
     {
       name: `Sorc ${suffix}`,
@@ -49,80 +48,143 @@ const createReport = (suffix, totalHr, importedAt) => ({
   topItems: [],
 });
 
-test("backend and gateway integration covers pairing, ingest, reads, and disconnect", async (t) => {
+const loadIntegrationContext = async (seed) => {
   const backend = createBackendServer();
   await new Promise((resolve) => backend.listen(0, "127.0.0.1", resolve));
-  t.after(async () => {
-    await new Promise((resolve, reject) => backend.close((error) => (error ? reject(error) : resolve())));
-    getDatabase().close();
-  });
-
   const backendAddress = backend.address();
   assert.ok(backendAddress && typeof backendAddress === "object");
-  const backendBaseUrl = `http://127.0.0.1:${backendAddress.port}`;
 
-  const user = upsertDiscordUser({
-    id: "discord-user-1",
-    username: "ralph",
+  const user = db.upsertDiscordUser({
+    id: `discord-user-${seed}`,
+    username: `ralph-${seed}`,
     global_name: "Ralph",
     avatar: null,
   });
-  const account = listAccountsForUser(user.id)[0];
-  const session = createSession(user.id);
-  const sessionCookie = `d2w_session=${encodeURIComponent(session.id)}`;
+  const account = db.listAccountsForUser(user.id)[0];
+  const session = db.createSession(user.id);
 
-  const { body: pairingCreated } = await fetchJson(`${backendBaseUrl}/api/gateway/pairing-sessions`, {
+  const close = async () => {
+    await new Promise((resolve, reject) => backend.close((error) => (error ? reject(error) : resolve())));
+  };
+
+  return {
+    GatewayService,
+    backendBaseUrl: `http://127.0.0.1:${backendAddress.port}`,
+    close,
+    db,
+    account,
+    sessionCookie: `d2w_session=${encodeURIComponent(session.id)}`,
+    tempRoot,
+  };
+};
+
+const createPairing = async (backendBaseUrl, clientId) => {
+  const { response, body } = await fetchJson(`${backendBaseUrl}/api/gateway/pairing-sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ clientId: "desktop-alpha" }),
+    body: JSON.stringify({ clientId }),
   });
-  assert.match(pairingCreated.pairingUrl, /\/auth\/discord\/start\?/);
 
-  const { response: pendingClaimResponse, body: pendingClaim } = await fetchJson(
-    `${backendBaseUrl}/api/gateway/pairing-sessions/${encodeURIComponent(pairingCreated.pairingId)}/claim`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pairingSecret: pairingCreated.pairingSecret }),
-    },
-  );
-  assert.equal(pendingClaimResponse.status, 202);
-  assert.equal(pendingClaim.status, "pending");
+  assert.equal(response.status, 200);
+  assert.equal(body.clientId, undefined);
+  assert.match(body.pairingUrl, /\/auth\/discord\/start\?/);
+  return body;
+};
 
-  const { response: approveResponse, body: approved } = await fetchJson(
-    `${backendBaseUrl}/api/gateway/pairing-sessions/${encodeURIComponent(pairingCreated.pairingId)}/approve`,
+const approvePairing = async (backendBaseUrl, pairingId, sessionCookie) => {
+  const { response, body } = await fetchJson(
+    `${backendBaseUrl}/api/gateway/pairing-sessions/${encodeURIComponent(pairingId)}/approve`,
     {
       method: "POST",
       headers: { Cookie: sessionCookie },
     },
   );
-  assert.equal(approveResponse.status, 200);
-  assert.equal(approved.accountId, account.id);
+
+  assert.equal(response.status, 200);
+  return body;
+};
+
+const claimPairing = async (backendBaseUrl, pairingId, pairingSecret) =>
+  fetchJson(`${backendBaseUrl}/api/gateway/pairing-sessions/${encodeURIComponent(pairingId)}/claim`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pairingSecret }),
+  });
+
+test("pairing issues a token only after approval and consumes the pairing on first successful claim", async (t) => {
+  const ctx = await loadIntegrationContext("pairing");
+  t.after(ctx.close);
+
+  const pairing = await createPairing(ctx.backendBaseUrl, "desktop-alpha");
+
+  const { response: forbiddenClaimResponse, body: forbiddenClaim } = await claimPairing(
+    ctx.backendBaseUrl,
+    pairing.pairingId,
+    `${pairing.pairingSecret}-wrong`,
+  );
+  assert.equal(forbiddenClaimResponse.status, 403);
+  assert.equal(forbiddenClaim.status, "forbidden");
+
+  const { response: pendingClaimResponse, body: pendingClaim } = await claimPairing(
+    ctx.backendBaseUrl,
+    pairing.pairingId,
+    pairing.pairingSecret,
+  );
+  assert.equal(pendingClaimResponse.status, 202);
+  assert.equal(pendingClaim.status, "pending");
+
+  const approved = await approvePairing(ctx.backendBaseUrl, pairing.pairingId, ctx.sessionCookie);
+  assert.equal(approved.accountId, ctx.account.id);
   assert.equal(approved.clientId, "desktop-alpha");
 
-  const { response: claimResponse, body: claimed } = await fetchJson(
-    `${backendBaseUrl}/api/gateway/pairing-sessions/${encodeURIComponent(pairingCreated.pairingId)}/claim`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pairingSecret: pairingCreated.pairingSecret }),
-    },
+  const { response: approvedClaimResponse, body: approvedClaim } = await claimPairing(
+    ctx.backendBaseUrl,
+    pairing.pairingId,
+    pairing.pairingSecret,
+  );
+  assert.equal(approvedClaimResponse.status, 200);
+  assert.equal(approvedClaim.status, "approved");
+  assert.equal(approvedClaim.clientId, "desktop-alpha");
+  assert.ok(approvedClaim.gatewayToken);
+
+  const { response: consumedClaimResponse, body: consumedClaim } = await claimPairing(
+    ctx.backendBaseUrl,
+    pairing.pairingId,
+    pairing.pairingSecret,
+  );
+  assert.equal(consumedClaimResponse.status, 410);
+  assert.equal(consumedClaim.status, "consumed");
+});
+
+test("gateway sync covers token-based ingest, latest/history reads, and disconnect cleanup", async (t) => {
+  const ctx = await loadIntegrationContext("sync");
+  t.after(ctx.close);
+
+  const pairing = await createPairing(ctx.backendBaseUrl, "desktop-alpha");
+  await approvePairing(ctx.backendBaseUrl, pairing.pairingId, ctx.sessionCookie);
+
+  const { response: claimResponse, body: claimed } = await claimPairing(
+    ctx.backendBaseUrl,
+    pairing.pairingId,
+    pairing.pairingSecret,
   );
   assert.equal(claimResponse.status, 200);
   assert.equal(claimed.status, "approved");
-  assert.ok(claimed.gatewayToken);
 
-  const saveDir = path.join(tempRoot, "saves");
-  fs.mkdirSync(saveDir, { recursive: true });
+  const saveDir = path.join(ctx.tempRoot, "saves");
+  const testSaveDir = path.join(saveDir, "sync");
+  fs.mkdirSync(testSaveDir, { recursive: true });
+  fs.writeFileSync(path.join(testSaveDir, "hero.d2s"), "fixture", "utf8");
+
   const service = new GatewayService({
     settings: {
       host: "127.0.0.1",
-      port: 0,
-      saveDir,
+      port: 3187,
+      saveDir: testSaveDir,
       autoStart: false,
       dashboardUrl: "http://127.0.0.1:4173",
-      backendUrl: backendBaseUrl,
-      accountId: account.id,
+      backendUrl: ctx.backendBaseUrl,
+      accountId: ctx.account.id,
       clientId: claimed.clientId,
       syncToken: claimed.gatewayToken,
     },
@@ -133,15 +195,18 @@ test("backend and gateway integration covers pairing, ingest, reads, and disconn
 
   const firstIngest = await service.syncToBackend();
   assert.equal(firstIngest.totalHr, 12.5);
+  assert.match(String(service.lastBackendSyncAt), /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(service.lastBackendSyncError, null);
+  assert.deepEqual(ctx.db.readAccountClients(ctx.account.id).map((client) => client.clientId), ["desktop-alpha"]);
 
   report = createReport("B", 18.75, "2026-03-29T12:05:00.000Z");
   const secondIngest = await service.syncToBackend();
   assert.equal(secondIngest.totalHr, 18.75);
 
   const { response: latestResponse, body: latestBody } = await fetchJson(
-    `${backendBaseUrl}/api/accounts/${encodeURIComponent(account.id)}/latest`,
+    `${ctx.backendBaseUrl}/api/accounts/${encodeURIComponent(ctx.account.id)}/latest`,
     {
-      headers: { Cookie: sessionCookie },
+      headers: { Cookie: ctx.sessionCookie },
     },
   );
   assert.equal(latestResponse.status, 200);
@@ -150,21 +215,22 @@ test("backend and gateway integration covers pairing, ingest, reads, and disconn
   assert.equal(latestBody.report.characters[0].name, "Sorc B");
 
   const { response: historyResponse, body: historyBody } = await fetchJson(
-    `${backendBaseUrl}/api/accounts/${encodeURIComponent(account.id)}/history`,
+    `${ctx.backendBaseUrl}/api/accounts/${encodeURIComponent(ctx.account.id)}/history`,
     {
-      headers: { Cookie: sessionCookie },
+      headers: { Cookie: ctx.sessionCookie },
     },
   );
   assert.equal(historyResponse.status, 200);
   assert.equal(historyBody.history.length, 2);
   assert.deepEqual(
-    historyBody.history.map((entry) => entry.totalHr),
-    [12.5, 18.75],
+    historyBody.history.map((entry) => ({ totalHr: entry.totalHr, capturedAt: entry.capturedAt })),
+    [
+      { totalHr: 12.5, capturedAt: "2026-03-29T12:00:00.000Z" },
+      { totalHr: 18.75, capturedAt: "2026-03-29T12:05:00.000Z" },
+    ],
   );
 
-  assert.equal(readAccountClients(account.id).length, 1);
-
-  const { response: disconnectResponse, body: disconnectBody } = await fetchJson(`${backendBaseUrl}/api/gateway/disconnect`, {
+  const { response: disconnectResponse, body: disconnectBody } = await fetchJson(`${ctx.backendBaseUrl}/api/gateway/disconnect`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -174,9 +240,12 @@ test("backend and gateway integration covers pairing, ingest, reads, and disconn
   });
   assert.equal(disconnectResponse.status, 200);
   assert.equal(disconnectBody.ok, true);
-  assert.equal(readAccountClients(account.id).length, 0);
+  assert.equal(ctx.db.readAccountClients(ctx.account.id).length, 0);
 
-  const { response: revokedIngestResponse, body: revokedIngestBody } = await fetchJson(`${backendBaseUrl}/api/ingest`, {
+  await assert.rejects(service.syncToBackend(), /Backend ingest failed with 401/);
+  assert.equal(service.lastBackendSyncError, "Backend ingest failed with 401");
+
+  const { response: revokedIngestResponse, body: revokedIngestBody } = await fetchJson(`${ctx.backendBaseUrl}/api/ingest`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -188,11 +257,15 @@ test("backend and gateway integration covers pairing, ingest, reads, and disconn
   assert.match(revokedIngestBody.error, /Valid gateway token required/);
 
   const { response: loggedOutReadResponse, body: loggedOutReadBody } = await fetchJson(
-    `${backendBaseUrl}/api/accounts/${encodeURIComponent(account.id)}/latest`,
+    `${ctx.backendBaseUrl}/api/accounts/${encodeURIComponent(ctx.account.id)}/latest`,
     {
-      headers: { Cookie: sessionCookie },
+      headers: { Cookie: ctx.sessionCookie },
     },
   );
   assert.equal(loggedOutReadResponse.status, 401);
   assert.match(loggedOutReadBody.error, /Authentication required/);
+});
+
+test.after(() => {
+  db.getDatabase().close();
 });
