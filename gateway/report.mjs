@@ -259,7 +259,7 @@ const collectWarnings = (items, valuationWarnings, unmatchedItems) => {
   unmatchedItems.push(...warnings.filter((warning) => warning.kind === "unresolved"));
 };
 
-const evaluateItem = (item, owner, location, source) => {
+export const evaluateItem = (item, owner, location, source) => {
   const quantity = stackQuantity(item);
 
   if (isLowConfidenceStoredAccessory(item, location)) {
