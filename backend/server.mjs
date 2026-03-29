@@ -16,6 +16,7 @@ import {
   ingestAccountReport,
   listAccountsForUser,
   listGatewayTokens,
+  readBackendHealth,
   readAccountClients,
   readAccountHistory,
   readAccountLatest,
@@ -268,12 +269,12 @@ export const createBackendServer = () => http.createServer(async (request, respo
   }
 
   if (url.pathname === "/health") {
-    sendJson(request, response, 200, {
-      ok: true,
+    const health = readBackendHealth();
+    sendJson(request, response, health.ok ? 200 : 503, {
+      ...health,
       host: HOST,
       port: PORT,
       discordConfigured: Boolean(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET),
-      checkedAt: new Date().toISOString(),
     });
     return;
   }

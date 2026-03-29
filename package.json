@@ -15,7 +15,8 @@
     "pretest": "npm run patch:d2-parser && npm run generate:market",
     "build": "tsc -b && vite build",
     "test": "node --test",
-    "test:integration": "node --test ./test/*.test.mjs",
+    "test:parser": "node --test ./test/offline-save-parser.test.mjs ./test/parser-fixtures.test.mjs",
+    "test:integration": "node --test ./test/backend-gateway.integration.test.mjs",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "preview": "vite preview",
@@ -23,6 +24,7 @@
     "backend": "node ./backend/server.mjs",
     "gateway": "node ./gateway/server.mjs",
     "gateway:tray": "electron ./gateway/tray.mjs",
+    "smoke:health": "node ./scripts/smoke-health-check.mjs",
     "dist:gateway": "npm run generate:market && electron-builder --win msi",
     "native:build": "dotnet build ./native-gateway/D2Wealth.Gateway.Win/D2Wealth.Gateway.Win.csproj -c Release",
     "native:publish": "powershell -ExecutionPolicy Bypass -File ./scripts/publish-native-gateway.ps1"

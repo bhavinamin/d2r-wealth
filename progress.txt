@@ -179,3 +179,16 @@ FILES:
  - scripts/publish-native-gateway.ps1
  - scripts/verify.ps1
 
+[2026-03-29 18:41:30 -04:00] TASK: Add tests, CI, deploy checks, and monitoring for health, accuracy, and validity.
+ISSUE: #63 https://github.com/bhavinamin/d2r-wealth/issues/63
+BRANCH: task/63-add-tests-ci-deploy-checks-and-monitoring-for-he
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - .github/workflows/ci.yml
+ - .github/workflows/deploy.yml
+ - backend/db.mjs
+ - backend/server.mjs
+ - package.json
+ - scripts/smoke-health-check.mjs
+ - test/backend-gateway.integration.test.mjs
+

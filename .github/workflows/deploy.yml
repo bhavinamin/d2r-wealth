@@ -54,7 +54,7 @@ jobs:
       - name: Smoke-test production
         run: |
           echo "Waiting for d2r.bjav.io health..."
-          curl -fS --retry 5 --retry-delay 5 --retry-all-errors https://d2r.bjav.io/health
+          node ./scripts/smoke-health-check.mjs https://d2r.bjav.io/health
 
       - name: Collect server diagnostics on smoke failure
         if: failure()
