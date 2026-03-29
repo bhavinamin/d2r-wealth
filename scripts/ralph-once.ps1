@@ -6,7 +6,7 @@ param(
     [string]$VerificationCommand = ".\\scripts\\verify.ps1",
     [string]$CommitPrefix = "ralph",
     [string]$RemoteName = "origin",
-    [string]$ReviewTriggerComment = "@codex review",
+    [string]$ReviewTriggerComment = "",
     [switch]$ShowPrompt
 )
 
@@ -95,7 +95,7 @@ function Get-CompletedTasks([string]$ProgressFile) {
     }
 
     foreach ($line in Get-Content -LiteralPath $ProgressFile) {
-        if ($line -match '^\s*TASK:\s*(.+?)\s*$') {
+        if ($line -match '^\s*(?:\[[^\]]+\]\s+)?TASK:\s*(.+?)\s*$') {
             [void]$completed.Add($matches[1].Trim())
         }
     }
