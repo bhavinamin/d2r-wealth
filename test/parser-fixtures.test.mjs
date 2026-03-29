@@ -621,6 +621,110 @@ test("rune market keeps key HR conversion anchors stable", () => {
   }
 });
 
+test("market data keeps mod alias values aligned with workbook labels for keys, essences, gems, and worldstone shards", () => {
+  const { runeValues, tokenValues, exactValues } = marketData;
+
+  assert.ok(exactValues["key of hatred"]);
+  assert.equal(exactValues["key of hatred"].name, "Key Of Hate");
+  assert.equal(exactValues["key of hatred"].valueHr, runeValues.Pul);
+
+  assert.ok(tokenValues.amethyst);
+  assert.equal(tokenValues.amethyst.name, "Amethyst");
+  assert.ok(!tokenValues["perfect amethyst"]);
+  assert.ok(!tokenValues["p amethysts"]);
+
+  for (const [alias, workbookLabel] of [
+    ["twisted essence of suffering", "essence 1"],
+    ["charged essence of hatred", "essence 2"],
+    ["burning essence of terror", "essence 3"],
+    ["festering essence of destruction", "essence 4"],
+  ]) {
+    assert.ok(exactValues[alias], `Expected exact alias entry for ${alias}`);
+    assert.ok(exactValues[workbookLabel], `Expected workbook entry for ${workbookLabel}`);
+    assert.equal(exactValues[alias].valueHr, exactValues[workbookLabel].valueHr);
+    assert.equal(exactValues[alias].sheet, exactValues[workbookLabel].sheet);
+    assert.equal(exactValues[alias].basis, exactValues[workbookLabel].basis);
+  }
+
+  for (const shardName of [
+    "western worldstone shard",
+    "eastern worldstone shard",
+    "southern worldstone shard",
+    "deep worldstone shard",
+    "northern worldstone shard",
+  ]) {
+    assert.ok(exactValues[shardName], `Expected exact shard entry for ${shardName}`);
+    assert.equal(exactValues[shardName].sheet, "Torch Market");
+    assert.equal(exactValues[shardName].basis, "mod-trade");
+    assert.equal(exactValues[shardName].valueHr, runeValues.Pul);
+  }
+});
+
+test("evaluateItem resolves modded material aliases that differ from workbook labels", () => {
+  const key = evaluateItem(
+    makeValueTestItem({
+      type: "pk2",
+      type_name: "Key of Hate",
+    }),
+    "AliasTester",
+    "character-stash",
+    "AliasTester stash 1",
+  );
+  const essence = evaluateItem(
+    makeValueTestItem({
+      type: "tes",
+      type_name: "Twisted Essence of Suffering",
+    }),
+    "AliasTester",
+    "shared-stash",
+    "AliasTester shared 1",
+  );
+  const gem = evaluateItem(
+    makeValueTestItem({
+      type: "gpv",
+      type_name: "Perfect Amethyst",
+      amount_in_shared_stash: 10,
+    }),
+    "AliasTester",
+    "shared-stash",
+    "AliasTester materials 1",
+  );
+  const shard = evaluateItem(
+    makeValueTestItem({
+      type: "xa1",
+      type_name: "Western Worldstone Shard",
+    }),
+    "AliasTester",
+    "shared-stash",
+    "AliasTester shared 2",
+  );
+
+  assert.ok(key);
+  assert.equal(key.matchedBy, "exact");
+  assert.equal(key.valueSource.type, "workbook");
+  assert.equal(key.valueSource.sheet, marketData.exactValues["key of hatred"].sheet);
+  assert.equal(key.valueHr, marketData.exactValues["key of hatred"].valueHr);
+
+  assert.ok(essence);
+  assert.equal(essence.matchedBy, "exact");
+  assert.equal(essence.valueSource.type, "workbook");
+  assert.equal(essence.valueSource.sheet, marketData.exactValues["twisted essence of suffering"].sheet);
+  assert.equal(essence.valueHr, marketData.exactValues["twisted essence of suffering"].valueHr);
+
+  assert.ok(gem);
+  assert.equal(gem.matchedBy, "token");
+  assert.equal(gem.quantity, 10);
+  assert.equal(gem.valueSource.type, "workbook");
+  assert.equal(gem.valueSource.sheet, "Workbook Token Market");
+  assert.equal(gem.valueHr, marketData.tokenValues.amethyst.valueHr * 10);
+
+  assert.ok(shard);
+  assert.equal(shard.matchedBy, "exact");
+  assert.equal(shard.valueSource.type, "workbook");
+  assert.equal(shard.valueSource.sheet, "Torch Market");
+  assert.equal(shard.valueHr, marketData.exactValues["western worldstone shard"].valueHr);
+});
+
 test("pricing contract surfaces explicit source labels for rune, workbook, derived recipe, and unresolved values", () => {
   const derivedItem = evaluateItem(
     makeValueTestItem({
