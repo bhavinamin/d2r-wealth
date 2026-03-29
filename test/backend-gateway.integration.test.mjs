@@ -25,6 +25,95 @@ const fetchJson = async (url, options = {}) => {
   return { response, body };
 };
 
+const waitFor = async (predicate, { attempts = 40, intervalMs = 25 } = {}) => {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await delay(intervalMs);
+  }
+
+  assert.fail("Timed out waiting for expected condition.");
+};
+
+const connectEventStream = async (url, headers = {}) => {
+  const controller = new AbortController();
+  const decoder = new TextDecoder();
+  const events = [];
+  let isClosed = false;
+  let buffer = "";
+  let readyResolved = false;
+  let resolveReady;
+  let resolveClosed;
+  const ready = new Promise((resolve) => {
+    resolveReady = resolve;
+  });
+  const closed = new Promise((resolve) => {
+    resolveClosed = resolve;
+  });
+
+  const response = await fetch(url, {
+    headers: {
+      Accept: "text/event-stream",
+      ...headers,
+    },
+    signal: controller.signal,
+  });
+  assert.equal(response.status, 200);
+  assert.ok(response.body);
+
+  void (async () => {
+    const reader = response.body.getReader();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+        for (const part of parts) {
+          const eventMatch = part.match(/^event:\s*(.+)$/m);
+          const dataMatch = part.match(/^data:\s*(.+)$/m);
+          if (!eventMatch || !dataMatch) {
+            continue;
+          }
+
+          const event = eventMatch[1].trim();
+          const data = JSON.parse(dataMatch[1]);
+          events.push({ event, data });
+          if (!readyResolved && event === "ready") {
+            readyResolved = true;
+            resolveReady();
+          }
+        }
+      }
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        throw error;
+      }
+    } finally {
+      resolveClosed();
+    }
+  })();
+
+  await ready;
+
+  return {
+    events,
+    async close() {
+      if (isClosed) {
+        return;
+      }
+      isClosed = true;
+      controller.abort();
+      await closed;
+    },
+  };
+};
+
 const createReport = (suffix, totalHr, importedAt, saveSetId = "save-set-alpha") => ({
   importedAt,
   totalHr,
@@ -481,6 +570,74 @@ test("gateway debounces syncs for relevant save-file changes and ignores unrelat
     service.stopWatcher();
     fs.watch = originalWatch;
   }
+});
+
+test("gateway ignores the tray event subscription when reporting connected viewers", async (t) => {
+  const saveDir = path.join(tempRoot, "viewer-events");
+  fs.mkdirSync(saveDir, { recursive: true });
+  fs.writeFileSync(path.join(saveDir, "hero.d2s"), "fixture", "utf8");
+
+  const connectedClients = [];
+  const disconnectedClients = [];
+  const service = new GatewayService({
+    settings: {
+      host: "127.0.0.1",
+      port: 0,
+      saveDir,
+      autoStart: false,
+      dashboardUrl: "http://127.0.0.1:4173",
+      backendUrl: "",
+      accountId: "account-viewers",
+      clientId: "desktop-viewers",
+      syncToken: "",
+    },
+    onClientConnected(client) {
+      connectedClients.push(client);
+    },
+    onClientDisconnected(client) {
+      disconnectedClients.push(client);
+    },
+  });
+  service.buildReport = async () => createReport("Events", 1, "2026-03-29T12:15:00.000Z");
+
+  await service.start();
+  t.after(async () => {
+    await service.stop();
+  });
+
+  const address = service.server?.address();
+  assert.ok(address && typeof address === "object");
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const trayClient = await connectEventStream(`${baseUrl}/events`, {
+    "X-D2-Gateway-Client": "tray",
+  });
+  t.after(async () => {
+    await trayClient.close();
+  });
+
+  assert.deepEqual(trayClient.events.map((entry) => entry.event), ["ready"]);
+  assert.equal(connectedClients.length, 0);
+  assert.equal(disconnectedClients.length, 0);
+
+  const viewerClient = await connectEventStream(`${baseUrl}/events`);
+  await waitFor(() => trayClient.events.some((entry) => entry.event === "viewer-connected"));
+
+  assert.equal(viewerClient.events[0]?.event, "ready");
+  assert.equal(trayClient.events.filter((entry) => entry.event === "viewer-connected").length, 1);
+  assert.equal(trayClient.events.filter((entry) => entry.event === "viewer-disconnected").length, 0);
+  assert.equal(connectedClients.length, 1);
+  assert.equal(disconnectedClients.length, 0);
+
+  await viewerClient.close();
+  await waitFor(() => trayClient.events.some((entry) => entry.event === "viewer-disconnected"));
+
+  assert.equal(trayClient.events.filter((entry) => entry.event === "viewer-connected").length, 1);
+  assert.equal(trayClient.events.filter((entry) => entry.event === "viewer-disconnected").length, 1);
+  assert.equal(connectedClients.length, 1);
+  assert.equal(disconnectedClients.length, 1);
+
+  await trayClient.close();
 });
 
 test("gateway schedules a safe retry after transient backend failures and recovers on the next attempt", async (t) => {
