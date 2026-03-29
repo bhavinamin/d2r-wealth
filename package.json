@@ -8,10 +8,11 @@
   "main": "gateway/tray.mjs",
   "scripts": {
     "postinstall": "node ./scripts/patch-d2-parser.mjs",
+    "patch:d2-parser": "node ./scripts/patch-d2-parser.mjs",
     "predev": "npm run generate:market",
     "dev": "vite",
     "prebuild": "npm run generate:market",
-    "pretest": "npm run generate:market",
+    "pretest": "npm run patch:d2-parser && npm run generate:market",
     "build": "tsc -b && vite build",
     "test": "node --test",
     "test:integration": "node --test ./test/*.test.mjs",
