@@ -244,7 +244,7 @@ const stackQuantity = (item) => {
   }
 
   if (isMaterialLikeToken(item)) {
-    return Math.max(0, item.amount_in_shared_stash);
+    return item.amount_in_shared_stash > 0 ? item.amount_in_shared_stash : inventoryQuantity;
   }
 
   return inventoryQuantity;

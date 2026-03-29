@@ -1064,9 +1064,7 @@ export default function App() {
             <StatCard label="Personal Stash" value={formatHr(characterStashHrFromReport(report))} />
             <StatCard label="Shared Stashes" value={formatHr(report?.sharedHr ?? 0)} />
           </section>
-          <p className="stats-note">
-            Total HR = equipped gear + inventory + personal stash + shared stash. Unmatched and low-confidence items stay excluded below.
-          </p>
+          <p className="stats-note">Total HR = equipped gear + inventory + personal stash + shared stash.</p>
 
           <section className="dashboard-grid">
             <div className="main-column">
@@ -1116,8 +1114,6 @@ export default function App() {
               </section>
             </aside>
           </section>
-
-          <ValuationWarningsPanel report={report} />
 
           <section className="panel footnote-panel">
             <div className="panel-header">

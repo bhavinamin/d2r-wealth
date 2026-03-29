@@ -1,6 +1,6 @@
 {
   "name": "d2-wealth",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Windows tray gateway for the D2 Wealth offline account tracker.",
   "author": "OpenAI Codex",
   "private": true,
