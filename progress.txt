@@ -122,3 +122,12 @@ FILES:
  - src/lib/types.ts
  - test/fixtures/parser-account.fixture.json
 
+[2026-03-29 14:48:34 -04:00] TASK: Add tests around mod alias handling for items such as essences, keys, gems, and worldstone shards that are known to differ from workbook labels.
+ISSUE: #43 https://github.com/bhavinamin/d2r-wealth/issues/43
+BRANCH: task/43-add-tests-around-mod-alias-handling-for-items-su
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - gateway/report.mjs
+ - src/lib/market.ts
+ - test/parser-fixtures.test.mjs
+
