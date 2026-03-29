@@ -84,3 +84,11 @@ VERIFY: .\\scripts\\verify.ps1
 FILES:
  - test/backend-gateway.integration.test.mjs
 
+[2026-03-29 14:12:24 -04:00] TASK: Document the production-safe Windows gateway install, pairing, update, and disconnect flow in the README and release process notes.
+ISSUE: #31 https://github.com/bhavinamin/d2r-wealth/issues/31
+BRANCH: task/31-document-the-production-safe-windows-gateway-ins
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - docs/
+ - README.md
+

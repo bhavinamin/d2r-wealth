@@ -101,6 +101,46 @@ The gateway is intended to point at a live D2R save directory such as:
 
 - `C:\Users\Bhavin\Saved Games\Diablo II Resurrected`
 
+## Windows Gateway Flow
+
+Production-safe desktop use is:
+
+1. Install the current `D2-Wealth-Gateway-Setup.msi` on the Windows PC that owns the save folder.
+2. Launch `D2 Wealth Gateway` from the Start menu so the tray app starts and opens the settings window.
+3. Confirm the save folder points at the live D2R save directory and save the settings before attempting pairing.
+4. Click `Sign in with Discord`, finish browser auth, and approve pairing for that PC.
+5. Wait for the tray window to show `Paired` and then `Synced`, then leave the gateway running in the tray for background uploads.
+
+Operational notes:
+
+- The packaged tray app stores settings in `%APPDATA%\\D2 Wealth Gateway\\settings.json`.
+- The packaged gateway defaults to the production backend and dashboard at `https://d2r.bjav.io`.
+- Pairing only succeeds after save validation passes. If the selected folder does not exist or has no parseable `.d2s`, pairing stays blocked.
+- The first successful upload happens after pairing completes or after the app starts with a valid saved token.
+- Quitting the tray app marks the gateway offline for the backend, but it does not clear the saved sync token.
+
+### Update Flow
+
+Use this path for production-safe upgrades:
+
+1. Right-click the tray icon and quit the running gateway.
+2. Install the newer `D2-Wealth-Gateway-Setup.msi`.
+3. Launch the gateway again and verify the save folder, `Paired` state, and `Synced` state in the settings window.
+
+The gateway uses a stable user-scoped settings file, so normal MSI upgrades should keep the existing save path, client identity, and pairing state. Re-pair only if the new build shows no saved token or the backend reports an invalid token.
+
+### Disconnect Flow
+
+Use `Disconnect` in the tray settings window when the PC should stop owning its current pairing, such as moving the save folder to another machine or retiring the install.
+
+`Disconnect` is stronger than quitting the app:
+
+- it revokes the current gateway sync token on the backend
+- it removes the client from the account's connected gateway list
+- it clears the saved sync token locally so future uploads stop until the PC is paired again
+
+After `Disconnect`, the same Windows install must go through the Discord pairing flow again before it can upload account snapshots.
+
 ## Repo Notes
 
 - `scripts/generate-market.mjs` builds the runtime market index
@@ -145,6 +185,7 @@ Gateway release rule:
 
 - build the MSI locally first with `npm run dist:gateway`
 - then trigger the GitHub `Release Gateway MSI` workflow so the published installer matches the local artifact
+- keep the release notes aligned with the install, pairing, update, and disconnect flow in [docs/release-process.md](C:/Users/Bhavin/Documents/dev/d2-wealth/docs/release-process.md)
 
 Before the workflow can go live:
 
