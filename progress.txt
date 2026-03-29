@@ -77,3 +77,10 @@ FILES:
  - gateway/service.mjs
  - test/backend-gateway.integration.test.mjs
 
+[2026-03-29 14:09:34 -04:00] TASK: Add regression coverage for tray-specific behaviors, especially ignoring the tray's own event subscription when reporting connected viewers.
+ISSUE: #29 https://github.com/bhavinamin/d2r-wealth/issues/29
+BRANCH: task/29-add-regression-coverage-for-tray-specific-behavi
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - test/backend-gateway.integration.test.mjs
+
