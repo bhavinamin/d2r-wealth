@@ -1,6 +1,6 @@
 {
   "name": "d2-wealth",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Windows tray gateway for the D2 Wealth offline account tracker.",
   "author": "OpenAI Codex",
   "private": true,
@@ -13,6 +13,8 @@
     "dev": "vite",
     "prebuild": "npm run generate:market",
     "pretest": "npm run patch:d2-parser && npm run generate:market",
+    "pretest:parser": "npm run patch:d2-parser && npm run generate:market",
+    "pretest:integration": "npm run patch:d2-parser && npm run generate:market",
     "build": "tsc -b && vite build",
     "test": "node --test",
     "test:parser": "node --test ./test/offline-save-parser.test.mjs ./test/parser-fixtures.test.mjs",

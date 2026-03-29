@@ -185,6 +185,8 @@ Gateway release rule:
 
 - build the MSI locally first with `npm run dist:gateway`
 - then trigger the GitHub `Release Gateway MSI` workflow so the published installer matches the local artifact
+- bump `package.json` version for shipped gateway changes so the workflow publishes a new release tag instead of overwriting the old one silently
+- do not treat the work as complete until the follow-up `master` CI run is green
 - keep the release notes aligned with the install, pairing, update, and disconnect flow in [docs/release-process.md](C:/Users/Bhavin/Documents/dev/d2-wealth/docs/release-process.md)
 
 Before the workflow can go live:
