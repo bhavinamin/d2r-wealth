@@ -17,6 +17,9 @@ Prove the parser and valuation logic are correct enough to trust for wealth tota
 - Validate non-rune material pricing such as keys, essences, and worldstone shards against the active market inputs.
 - Confirm equipment value is included exactly once.
 - Confirm stash rankings are sorted by HR value and stable on ties.
+- For Windows client-side checks, prefer the native gateway console mode so validation does not depend on tray UI automation.
+- Use `C:\Users\Bhavin\Saved Games\Diablo II Resurrected\mods\D2RMM_SOLO` as the default local save path for client-side validation unless a task says otherwise.
+- Use an isolated `--settings-path` and alternate local port for gateway validation so the installed app is not interrupted.
 
 ## Acceptance Criteria
 - The same input always produces the same total.

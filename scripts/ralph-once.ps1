@@ -239,6 +239,7 @@ function New-RalphPrompt {
         [string]$VerificationCommand
     )
 
+    $clientTestSavePath = 'C:\Users\Bhavin\Saved Games\Diablo II Resurrected\mods\D2RMM_SOLO'
     $verificationLine = if ($VerificationCommand) {
         "Local verification required before push: $VerificationCommand"
     } else {
@@ -275,7 +276,9 @@ Execution contract:
 7. Do not create issues, switch branches, commit, push, open PRs, or update progress.txt; the wrapper script owns that workflow.
 8. $verificationLine
 9. If GitHub review findings already exist on the branch or PR, address them before considering the work ready for merge.
-10. If you need human help, end stdout with exactly this machine-readable section:
+10. For Windows gateway or other client-side tests, use this save path unless the task explicitly requires another fixture: $clientTestSavePath
+11. For Windows gateway or other client-side tests, do not attach to the user's installed gateway app or its live settings. Use an isolated settings file and alternate local port when needed.
+12. If you need human help, end stdout with exactly this machine-readable section:
 NOTES
 HUMAN_REQUIRED: yes
 HUMAN_REASON: <short reason>
@@ -287,6 +290,11 @@ HUMAN_REQUIRED: no
 Task selection rule used by the wrapper:
 - first unchecked markdown checkbox task in the PRD
 - excluding tasks already logged as completed in progress.txt
+
+Client-side testing baseline:
+- Preferred D2R save path: $clientTestSavePath
+- Avoid interfering with any installed gateway already running on port 3187.
+- When testing the Windows gateway directly, prefer the console mode with an isolated --settings-path.
 
 Project context:
 
