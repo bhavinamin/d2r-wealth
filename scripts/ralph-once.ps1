@@ -246,11 +246,6 @@ function New-RalphPrompt {
     }
 
     $contextBlocks = @(
-        Read-ContextFile -PathValue (Join-Path $RepoRoot "agents\frontend-ui-agent.md") -Heading "agents/frontend-ui-agent.md"
-        Read-ContextFile -PathValue (Join-Path $RepoRoot "agents\parser-data-agent.md") -Heading "agents/parser-data-agent.md"
-        Read-ContextFile -PathValue (Join-Path $RepoRoot "agents\validation-agent.md") -Heading "agents/validation-agent.md"
-        Read-ContextFile -PathValue (Join-Path $RepoRoot "skills\save-import-workflow.md") -Heading "skills/save-import-workflow.md"
-        Read-ContextFile -PathValue (Join-Path $RepoRoot "skills\market-normalization-workflow.md") -Heading "skills/market-normalization-workflow.md"
         Read-ContextFile -PathValue $PrdFile -Heading "PRD"
         if (Test-Path -LiteralPath $ProgressFile) {
             Read-ContextFile -PathValue $ProgressFile -Heading "progress.txt"
@@ -274,12 +269,13 @@ Execution contract:
 1. Read the PRD and progress context below.
 2. Implement only the selected task above and keep the work scoped to issue #$IssueNumber.
 3. Do not start a second task, even if the first one finishes quickly.
-4. Follow the agent and workflow guidance below when making changes.
-5. Add or update focused tests when the repo already has a relevant test harness; otherwise keep the change buildable and note any verification gaps.
-6. Do not create issues, switch branches, commit, push, open PRs, or update progress.txt; the wrapper script owns that workflow.
-7. $verificationLine
-8. If GitHub review findings already exist on the branch or PR, address them before considering the work ready for merge.
-9. If you need human help, end stdout with exactly this machine-readable section:
+4. Treat the PRD as the source of truth; avoid unrelated process, policy, or tooling changes unless the selected task explicitly requires them.
+5. Prioritize product outcomes: parsing accuracy, valuation correctness, sync reliability, and dashboard trust.
+6. Add or update focused tests when the repo already has a relevant test harness; otherwise keep the change buildable and note any verification gaps.
+7. Do not create issues, switch branches, commit, push, open PRs, or update progress.txt; the wrapper script owns that workflow.
+8. $verificationLine
+9. If GitHub review findings already exist on the branch or PR, address them before considering the work ready for merge.
+10. If you need human help, end stdout with exactly this machine-readable section:
 NOTES
 HUMAN_REQUIRED: yes
 HUMAN_REASON: <short reason>
