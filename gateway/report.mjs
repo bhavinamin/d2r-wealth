@@ -89,6 +89,7 @@ const normalizeMarketName = (value) =>
     .trim()
     .toLowerCase()
     .replace(/\bkey of hate\b/g, "key of hatred")
+    .replace(/\bperfect amethyst\b/g, "amethyst")
     .replace(/\brune\b/g, "")
     .replace(/\s+/g, " ")
     .replace(/\s*,\s*/g, ",")

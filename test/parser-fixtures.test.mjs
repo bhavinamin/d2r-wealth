@@ -358,6 +358,12 @@ const buildItem = (spec, targetVersion) => {
       return buildMaterialItem(spec, targetVersion, "pk2", "Key of Hate");
     case "key-of-terror":
       return buildMaterialItem(spec, targetVersion, "pk1", "Key of Terror");
+    case "charged-essence-of-hatred":
+      return buildMaterialItem(spec, targetVersion, "ceh", "Charged Essence of Hatred");
+    case "western-worldstone-shard":
+      return buildMaterialItem(spec, targetVersion, "xa1", "Western Worldstone Shard");
+    case "perfect-amethyst":
+      return buildMaterialItem(spec, targetVersion, "gpv", "Perfect Amethyst");
     case "enigma":
       return {
         ...baseItem({
@@ -691,4 +697,88 @@ test("pricing contract surfaces explicit source labels for rune, workbook, deriv
   assert.ok(unresolvedSummary);
   assert.equal(unresolvedSummary.valueSource.type, "unresolved");
   assert.equal(unresolvedSummary.valueSource.label, "Unresolved Market Value");
+});
+
+test("mod alias material items keep workbook-backed values for keys, essences, gems, and worldstone shards", async () => {
+  const report = await buildScenarioReport({
+    accountDirName: "material-alias-contract",
+    importedAt: "2026-03-29T18:00:00.000Z",
+    character: {
+      fileName: "AliasContract.d2s",
+      name: "AliasContract",
+      className: "Sorceress",
+      level: 90,
+      items: [
+        {
+          template: "key-of-hatred",
+          location: "character-stash",
+          x: 0,
+          y: 0,
+        },
+      ],
+    },
+    sharedStash: {
+      fileName: "SharedStashSoftCoreV2.d2i",
+      pages: [
+        {
+          name: "Materials",
+          isStackable: 1,
+          items: [
+            {
+              template: "charged-essence-of-hatred",
+              location: "shared-stash",
+              x: 0,
+              y: 0,
+              stackAmount: 1,
+            },
+            {
+              template: "western-worldstone-shard",
+              location: "shared-stash",
+              x: 1,
+              y: 0,
+              stackAmount: 1,
+            },
+            {
+              template: "perfect-amethyst",
+              location: "shared-stash",
+              x: 2,
+              y: 0,
+              stackAmount: 1,
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  const keyItem = report.allValuedItems.find((item) => item.name === "Key of Hate");
+  const essenceItem = report.allValuedItems.find((item) => item.name === "Charged Essence of Hatred");
+  const shardItem = report.allValuedItems.find((item) => item.name === "Western Worldstone Shard");
+  const amethystItem = report.allValuedItems.find((item) => item.name === "Perfect Amethyst");
+
+  assert.ok(keyItem);
+  assert.equal(keyItem.matchedBy, "exact");
+  assert.equal(keyItem.valueHr, marketData.exactValues["key of hatred"].valueHr);
+  assert.equal(keyItem.valueSource.type, "workbook");
+  assert.equal(keyItem.valueSource.sheet, "Endgame Market");
+
+  assert.ok(essenceItem);
+  assert.equal(essenceItem.matchedBy, "exact");
+  assert.equal(essenceItem.valueHr, marketData.exactValues["essence 2"].valueHr);
+  assert.equal(essenceItem.valueSource.type, "workbook");
+  assert.equal(essenceItem.valueSource.sheet, "Endgame Market");
+
+  assert.ok(shardItem);
+  assert.equal(shardItem.matchedBy, "exact");
+  assert.equal(shardItem.valueHr, marketData.exactValues["western worldstone shard"].valueHr);
+  assert.equal(shardItem.valueSource.type, "workbook");
+  assert.equal(shardItem.valueSource.sheet, "Torch Market");
+
+  assert.ok(amethystItem);
+  assert.equal(amethystItem.matchedBy, "token");
+  assert.equal(amethystItem.valueHr, marketData.tokenValues.amethyst.valueHr);
+  assert.equal(amethystItem.valueSource.type, "workbook");
+  assert.equal(amethystItem.valueSource.label, "Workbook: Workbook Token Market");
+
+  assert.equal(report.unmatchedItems.length, 0);
 });
