@@ -1,5 +1,6 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { URL } from "node:url";
 import {
   approveGatewayPairing,
@@ -238,7 +239,7 @@ const exchangeDiscordCode = async (code) => {
   return userResponse.json();
 };
 
-const server = http.createServer(async (request, response) => {
+export const createBackendServer = () => http.createServer(async (request, response) => {
   if (!request.url) {
       sendJson(request, response, 400, { error: "Missing request URL." });
     return;
@@ -570,6 +571,25 @@ const server = http.createServer(async (request, response) => {
   sendJson(request, response, 404, { error: "Not found." });
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`D2 backend listening on http://${HOST}:${PORT}`);
-});
+export const startBackendServer = (options = {}) => {
+  const server = createBackendServer();
+  const host = options.host ?? HOST;
+  const port = options.port ?? PORT;
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, host, () => {
+      server.off("error", reject);
+      resolve(server);
+    });
+  });
+};
+
+const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+
+if (isMainModule) {
+  const server = await startBackendServer();
+  const address = server.address();
+  const activeHost = typeof address === "object" && address ? address.address : HOST;
+  const activePort = typeof address === "object" && address ? address.port : PORT;
+  console.log(`D2 backend listening on http://${activeHost}:${activePort}`);
+}

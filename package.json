@@ -12,6 +12,8 @@
     "dev": "vite",
     "prebuild": "npm run generate:market",
     "build": "tsc -b && vite build",
+    "test": "node --test",
+    "test:integration": "node --test ./test/*.test.mjs",
     "preview": "vite preview",
     "generate:market": "node ./scripts/generate-market.mjs",
     "backend": "node ./backend/server.mjs",
