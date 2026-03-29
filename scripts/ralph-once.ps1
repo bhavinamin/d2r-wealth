@@ -6,6 +6,7 @@ param(
     [string]$VerificationCommand = "",
     [string]$CommitPrefix = "ralph",
     [string]$RemoteName = "origin",
+    [string]$ReviewTriggerComment = "@codex review",
     [switch]$ShowPrompt
 )
 
@@ -317,6 +318,17 @@ function Invoke-Verification([string]$VerificationCommand) {
     if (-not $VerificationCommand) {
         return
     }
+
+    $trimmed = $VerificationCommand.Trim()
+    if ($trimmed -match '(^|[\\/])[^\\/]+\.ps1($|\s)') {
+        Write-Host "Running: powershell -ExecutionPolicy Bypass -File $trimmed"
+        powershell -ExecutionPolicy Bypass -File $trimmed
+        if ($LASTEXITCODE -ne 0) {
+            throw "Verification command failed with exit code $LASTEXITCODE."
+        }
+        return
+    }
+
     Invoke-ExternalCommand -CommandText $VerificationCommand -FailureMessage "Verification command failed with exit code $LASTEXITCODE."
 }
 
@@ -419,6 +431,15 @@ function Ensure-DraftPr([string]$RemoteName, [string]$BaseBranch, [string]$Branc
     }
 }
 
+function Invoke-PrReviewTrigger([string]$BranchName, [string]$ReviewTriggerComment) {
+    if (-not $ReviewTriggerComment) {
+        return
+    }
+
+    $escaped = $ReviewTriggerComment.Replace('"', '\"')
+    Invoke-ExternalCommand -CommandText "gh pr comment $BranchName --body ""$escaped""" -FailureMessage "Failed to post PR review trigger comment."
+}
+
 function Get-PrReviewStatus([string]$BranchName) {
     $prJson = gh pr view $BranchName --json url,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup,reviewRequests
     $pr = $prJson | ConvertFrom-Json
@@ -515,6 +536,7 @@ try {
     git push -u $RemoteName $branchName | Out-Null
 
     $pr = Ensure-DraftPr -RemoteName $RemoteName -BaseBranch $defaultBranch -BranchName $branchName -Title $commitMessage -IssueNumber $issue.number -Task $task -VerificationCommand $verificationToRun
+    Invoke-PrReviewTrigger -BranchName $branchName -ReviewTriggerComment $ReviewTriggerComment
     $reviewStatus = Get-PrReviewStatus -BranchName $branchName
 
     Write-Host "Completed task: $task"
