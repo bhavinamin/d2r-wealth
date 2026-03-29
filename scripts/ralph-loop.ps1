@@ -88,6 +88,10 @@ function Test-NoTasksRemain([string]$OutputText) {
     return $OutputText -match 'No incomplete markdown checkbox task was found'
 }
 
+function Test-TaskCompletedOutput([string]$OutputText) {
+    return $OutputText -match '(?m)^Completed task:\s+'
+}
+
 function Get-RecoveryAssessment([string]$RepoRoot, [string]$FailureOutputFile) {
     $assessmentFile = Join-Path ([System.IO.Path]::GetTempPath()) ("ralph-loop-recovery-" + [System.Guid]::NewGuid().ToString() + ".txt")
 
@@ -220,6 +224,11 @@ while ($loopCount -lt $MaxLoops) {
                 break
             }
 
+             if (Test-TaskCompletedOutput -OutputText $outputText) {
+                $success = $true
+                break
+            }
+
             if (Test-NoTasksRemain -OutputText $outputText) {
                 Write-Host "No remaining PRD tasks."
                 exit 0
@@ -233,6 +242,11 @@ while ($loopCount -lt $MaxLoops) {
             $assessment = Get-RecoveryAssessment -RepoRoot $repoRoot -FailureOutputFile $runOutputFile
             $lastDiagnosis = $assessment.diagnosis
             Write-Host "Recovery diagnosis: $lastDiagnosis"
+
+            if (-not $assessment.humanRequired -and -not $assessment.retryRecommended) {
+                $success = $true
+                break
+            }
 
             if (-not $assessment.retryRecommended -or $assessment.humanRequired) {
                 break
