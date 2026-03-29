@@ -26,6 +26,13 @@ Build the dashboard experience around wealth tracking, item inspection, and hist
 - Do not expose raw localhost connect controls in the browser once the product is backend-first.
 - Keep setup steps explicit for Discord sign-in, token retrieval, and gateway installation.
 
+## Delivery Workflow
+- Treat each PRD task as an issue-backed unit of work.
+- Make UI changes on a dedicated branch, not on `master`.
+- Keep changes scoped so one issue maps cleanly to one draft PR.
+- Add or update focused tests when the repo already has a relevant harness; otherwise keep the change buildable and note the verification gap.
+- Run local verification before pushing, then use a PR that references and closes the issue on merge.
+
 ## Visual Hierarchy
 - Signed-out landing: product overview, setup steps, Discord sign-in, gateway setup guidance.
 - `Overview`: authenticated quick totals, history, roster, notes.

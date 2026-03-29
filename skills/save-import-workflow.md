@@ -26,6 +26,10 @@ Import Diablo 2: Resurrected character and stash files, extract all value-bearin
 - Keep gateway client identity stable so backend history can distinguish uploads from multiple machines.
 - Do not use browser sessions as gateway credentials; gateway publish access should stay token-based.
 - Do not treat the tray app's own event subscription as a real dashboard viewer when surfacing gateway connected state.
+- For any gateway MSI release, always build the installer locally first and then run the GitHub release workflow so the local artifact and published artifact stay in sync.
+- Track substantial workflow changes in GitHub issues, implement them on dedicated branches, and open PRs instead of landing direct `master` edits.
+- Run relevant local verification before pushing, favoring focused tests where the repo provides them and falling back to the existing build/smoke path when it does not.
+- Resolve GitHub review findings on a PR before merging the workflow change.
 
 ## Outputs
 - Character wealth snapshot.

@@ -32,3 +32,9 @@ Own the data pipeline that turns D2R save inputs plus market sources into a cano
 - Do not round values until the final presentation layer.
 - Log ambiguous item matches with enough context to inspect them manually.
 - When vanilla parser paths disagree with stackable-sector material data, prefer the stackable-sector result for rune inventory.
+
+## Delivery Workflow
+- Treat each parser or data task as an issue-backed change set with a dedicated branch.
+- Keep migrations, schema updates, and parser behavior changes small enough to review in one PR.
+- Add or update focused validation where the repo already supports it, and run local verification before pushing.
+- Use draft PRs for active work and close issues through the merged PR rather than by hand.

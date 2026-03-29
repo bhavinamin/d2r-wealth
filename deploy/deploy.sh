@@ -14,6 +14,10 @@ node ./scripts/patch-d2-parser.mjs
 npm rebuild better-sqlite3
 npm run build
 
+if [ -d "${CURRENT_LINK}" ] && [ ! -L "${CURRENT_LINK}" ]; then
+  rm -rf "${CURRENT_LINK}"
+fi
+
 ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
 
 systemctl restart d2-wealth-backend

@@ -141,6 +141,11 @@ GitHub secrets expected by the workflow:
 - `DEPLOY_SSH_KEY`
 - `DEPLOY_PORT` optional
 
+Gateway release rule:
+
+- build the MSI locally first with `npm run dist:gateway`
+- then trigger the GitHub `Release Gateway MSI` workflow so the published installer matches the local artifact
+
 Before the workflow can go live:
 
 - create a DNS record for `d2r.bjav.io`

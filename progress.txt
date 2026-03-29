@@ -1,0 +1,5 @@
+# Ralph Progress
+
+# The runner appends one completed task block per successful issue/branch/PR cycle.
+# `PRD.md` remains the roadmap source of truth for pending work.
+# This file records what has already been completed and verified.
