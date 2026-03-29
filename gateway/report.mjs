@@ -28,6 +28,8 @@ const ITEM_CONTAINER = {
   stash: 5,
 };
 
+const compareByFileName = (left, right) => left.name.localeCompare(right.name);
+
 const runewordRecipes = {
   Black: ["Thul", "Io", "Nef"],
   Enigma: ["Jah", "Ith", "Ber"],
@@ -163,6 +165,8 @@ const classifyCharacterItem = (item) => {
   return "other";
 };
 
+const isStashPageItem = (item) => item.location_id === 0 && item.alt_position_id === ITEM_CONTAINER.stash;
+
 const matchExactValue = (item) => {
   const candidates = [
     item.unique_name,
@@ -234,16 +238,60 @@ const isMaterialLikeToken = (item) => {
 };
 
 const stackQuantity = (item) => {
+  const inventoryQuantity = typeof item.quantity === "number" && item.quantity > 0 ? item.quantity : 1;
   if (typeof item.amount_in_shared_stash !== "number") {
-    return 1;
+    return inventoryQuantity;
   }
 
   if (isMaterialLikeToken(item)) {
     return Math.max(0, item.amount_in_shared_stash);
   }
 
-  return item.amount_in_shared_stash > 0 ? item.amount_in_shared_stash : 1;
+  return inventoryQuantity;
 };
+
+const compareGridItems = (left, right) =>
+  (left.position_y ?? 0) - (right.position_y ?? 0) ||
+  (left.position_x ?? 0) - (right.position_x ?? 0) ||
+  displayName(left).localeCompare(displayName(right)) ||
+  String(left.type ?? "").localeCompare(String(right.type ?? ""));
+
+const compareEquippedItems = (left, right) =>
+  (left.equipped_id ?? 0) - (right.equipped_id ?? 0) ||
+  compareGridItems(left, right);
+
+const compareMaterialItems = (left, right) =>
+  displayName(left).localeCompare(displayName(right)) ||
+  String(left.type ?? "").localeCompare(String(right.type ?? "")) ||
+  stackQuantity(left) - stackQuantity(right);
+
+const toParsedItem = (item, location) => ({
+  name: displayName(item),
+  type: String(item.type ?? "") || null,
+  baseName: item.type_name ?? lookupTypeName(item.type) ?? null,
+  location,
+  quantity: stackQuantity(item),
+  x: item.position_x ?? 0,
+  y: item.position_y ?? 0,
+  equippedSlot: location === "equipped" ? item.equipped_id ?? null : null,
+});
+
+const createSaveSetId = (saveDir, characters, stashes) =>
+  crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        saveDir: path.basename(saveDir).toLowerCase(),
+        characters: characters
+          .map(({ data }) => ({
+            name: String(data.header.name ?? "").toLowerCase(),
+            className: String(data.header.class ?? "").toLowerCase(),
+          }))
+          .sort((left, right) => `${left.name}:${left.className}`.localeCompare(`${right.name}:${right.className}`)),
+        stashes: stashes.map((stash) => stash.fileName.toLowerCase()).sort(),
+      }),
+    )
+    .digest("hex");
 
 const toWarningEntry = (item) => ({
   kind: item.matchedBy === "ambiguous" ? "ambiguous" : "unresolved",
@@ -473,19 +521,20 @@ const parseStackableSectorItems = async (buffer) => {
   return parsedSectors[0]?.items ?? [];
 };
 
-export const buildGatewayReport = async (saveDir) => {
-  const importedAt = new Date().toISOString();
-  const entries = await fsp.readdir(saveDir, { withFileTypes: true });
-  const files = entries.filter((entry) => entry.isFile());
+const readOfflineSaveData = async (saveDir) => {
+  const entries = (await fsp.readdir(saveDir, { withFileTypes: true })).filter((entry) => entry.isFile()).sort(compareByFileName);
   const characters = [];
   const stashes = [];
 
-  for (const entry of files) {
+  for (const entry of entries) {
     const fullPath = path.join(saveDir, entry.name);
     const buffer = new Uint8Array(await fsp.readFile(fullPath));
     const lower = entry.name.toLowerCase();
     if (lower.endsWith(".d2s")) {
-      characters.push(await readCharacter(buffer, undefined, { disableItemEnhancements: true }));
+      characters.push({
+        fileName: entry.name,
+        data: await readCharacter(buffer, undefined, { disableItemEnhancements: true }),
+      });
     } else if (lower.endsWith(".d2i") || lower.endsWith(".sss") || lower.endsWith(".cst")) {
       stashes.push({
         fileName: entry.name,
@@ -495,21 +544,61 @@ export const buildGatewayReport = async (saveDir) => {
     }
   }
 
-  const saveSetId = crypto
-    .createHash("sha256")
-    .update(
-      JSON.stringify({
-        saveDir: path.basename(saveDir).toLowerCase(),
-        characters: characters
-          .map((character) => ({
-            name: String(character.header.name ?? "").toLowerCase(),
-            className: String(character.header.class ?? "").toLowerCase(),
-          }))
-          .sort((left, right) => `${left.name}:${left.className}`.localeCompare(`${right.name}:${right.className}`)),
-        stashes: stashes.map((stash) => stash.fileName.toLowerCase()).sort(),
+  return { entries, characters, stashes };
+};
+
+export const parseOfflineSaveData = async (saveDir) => {
+  const { characters, stashes } = await readOfflineSaveData(saveDir);
+
+  return {
+    saveSetId: createSaveSetId(saveDir, characters, stashes),
+    characters: characters.map(({ fileName, data }) => {
+      const equippedItems = data.items.filter((item) => classifyCharacterItem(item) === "equipped").sort(compareEquippedItems);
+      const inventoryItems = data.items.filter((item) => classifyCharacterItem(item) === "inventory").sort(compareGridItems);
+      const cubeItems = data.items.filter((item) => classifyCharacterItem(item) === "cube").sort(compareGridItems);
+      const stashItems = data.items.filter((item) => classifyCharacterItem(item) === "character-stash").sort(compareGridItems);
+
+      return {
+        fileName,
+        name: data.header.name,
+        className: data.header.class,
+        level: data.header.level,
+        equippedItems: equippedItems.map((item) => toParsedItem(item, "equipped")),
+        inventoryItems: inventoryItems.map((item) => toParsedItem(item, "inventory")),
+        cubeItems: cubeItems.map((item) => toParsedItem(item, "cube")),
+        stashItems: stashItems.map((item) => toParsedItem(item, "character-stash")),
+      };
+    }),
+    stashes: await Promise.all(
+      stashes.map(async (stash) => {
+        let materialItems = await parseStackableSectorItems(stash.buffer);
+        if (!materialItems.length) {
+          materialItems = await parseChronicleItems(stash.data.chronicle?.data ?? []);
+        }
+
+        return {
+          fileName: stash.fileName,
+          kind: stash.data.type === 0 ? "shared" : "private",
+          pages: stash.data.pages.map((page, pageIndex) => ({
+            pageIndex,
+            name: page.name ?? "",
+            items: page.items
+              .filter(isStashPageItem)
+              .filter((item) => !materialItems.length || !isMaterialLikeToken(item))
+              .sort(compareGridItems)
+              .map((item) => toParsedItem(item, stash.data.type === 0 ? "shared-stash" : "private-stash")),
+          })),
+          materialItems: materialItems.sort(compareMaterialItems).map((item) => toParsedItem(item, "shared-stash")),
+        };
       }),
-    )
-    .digest("hex");
+    ),
+  };
+};
+
+export const buildGatewayReport = async (saveDir) => {
+  const importedAt = new Date().toISOString();
+  const { entries: files, characters, stashes } = await readOfflineSaveData(saveDir);
+  const saveSetId = createSaveSetId(saveDir, characters, stashes);
 
   const valuedItems = [];
   const unmatchedItems = [];
@@ -517,7 +606,7 @@ export const buildGatewayReport = async (saveDir) => {
   const runeCounts = new Map();
   const characterSummaries = [];
 
-  for (const character of characters) {
+  for (const { data: character } of characters) {
     const equippedItems = character.items.filter((item) => classifyCharacterItem(item) === "equipped");
     const stashItems = character.items.filter((item) => classifyCharacterItem(item) === "character-stash");
     const carryItems = character.items.filter((item) => ["inventory", "cube"].includes(classifyCharacterItem(item)));
@@ -556,7 +645,9 @@ export const buildGatewayReport = async (saveDir) => {
 
     for (const [pageIndex, page] of stash.data.pages.entries()) {
       const location = stash.data.type === 0 ? "shared-stash" : "private-stash";
-      const filteredPageItems = materialItems.length ? page.items.filter((item) => !isMaterialLikeToken(item)) : page.items;
+      const filteredPageItems = page.items
+        .filter(isStashPageItem)
+        .filter((item) => !materialItems.length || !isMaterialLikeToken(item));
 
       gatherRuneCounts(filteredPageItems, runeCounts, true);
 

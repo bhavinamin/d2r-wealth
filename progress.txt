@@ -131,3 +131,12 @@ FILES:
  - src/lib/market.ts
  - test/parser-fixtures.test.mjs
 
+[2026-03-29 17:45:53 -04:00] TASK: Accurately parse Diablo II: Resurrected offline save data.
+ISSUE: #52 https://github.com/bhavinamin/d2r-wealth/issues/52
+BRANCH: task/52-accurately-parse-diablo-ii-resurrected-offline-s
+VERIFY: .\\scripts\\verify.ps1
+FILES:
+ - gateway/report.mjs
+ - test/fixtures/real-save-account/
+ - test/offline-save-parser.test.mjs
+
