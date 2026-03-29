@@ -82,7 +82,7 @@ function Get-DefaultBranchCiRuns([string]$DefaultBranch) {
     return @($runs | Where-Object { $_.workflowName -eq "CI" })
 }
 
-function Get-LatestFailedCiRun([string]$BranchName) {
+function Get-LatestFailedWorkflowRun([string]$BranchName) {
     $runsJson = gh run list --branch $BranchName --json databaseId,status,conclusion,workflowName,url,headBranch --limit 20
     $runs = @()
     if ($runsJson) {
@@ -90,7 +90,11 @@ function Get-LatestFailedCiRun([string]$BranchName) {
     }
 
     return @($runs |
-        Where-Object { $_.workflowName -eq "CI" -and $_.status -eq "completed" -and $_.conclusion -eq "failure" } |
+        Where-Object {
+            $_.status -eq "completed" -and
+            $_.conclusion -eq "failure" -and
+            @("CI", "Deploy", "Release Gateway MSI") -contains $_.workflowName
+        } |
         Select-Object -First 1)
 }
 
@@ -390,7 +394,7 @@ function Get-NewStatusPaths([string[]]$BaselinePaths) {
 }
 
 function Get-FailureLogText([string]$BranchName) {
-    $run = Get-LatestFailedCiRun -BranchName $BranchName
+    $run = Get-LatestFailedWorkflowRun -BranchName $BranchName
     if ($run.Count -eq 0) {
         return ""
     }

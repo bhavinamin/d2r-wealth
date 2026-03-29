@@ -29,9 +29,11 @@ Acceptance:
 - User can sign in with Discord and link local save data to their account.
 - App can connect, sync, and disconnect cleanly.
 - App shows clear status for connected, syncing, error, and disconnected states.
+- Changes to the shipped Windows gateway also produce a new versioned release artifact for users.
 
 - [ ] Add tests, CI, deploy checks, and monitoring for health, accuracy, and validity.
 Acceptance:
-- CI runs parser/integration tests and build on every PR.
+- CI runs parser/integration tests and build on every PR, and merged work is not considered complete if `master` CI is red.
 - Deploy workflow includes production smoke check for `/health`.
 - Failed smoke checks include enough logs/diagnostics to identify root cause quickly.
+- Gateway-affecting merges publish a new MSI release after successful gateway tests and post-merge `master` CI.

@@ -18,11 +18,35 @@ if ($scriptNames -contains "test") {
     }
 }
 
+if ($scriptNames -contains "test:parser") {
+    Write-Host "Running: npm run test:parser"
+    npm run test:parser
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm run test:parser failed with exit code $LASTEXITCODE."
+    }
+}
+
+if ($scriptNames -contains "test:integration") {
+    Write-Host "Running: npm run test:integration"
+    npm run test:integration
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm run test:integration failed with exit code $LASTEXITCODE."
+    }
+}
+
 if ($scriptNames -contains "build") {
     Write-Host "Running: npm run build"
     npm run build
     if ($LASTEXITCODE -ne 0) {
         throw "npm run build failed with exit code $LASTEXITCODE."
+    }
+}
+
+if ($scriptNames -contains "test:e2e") {
+    Write-Host "Running: npm run test:e2e"
+    npm run test:e2e
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm run test:e2e failed with exit code $LASTEXITCODE."
     }
 }
 

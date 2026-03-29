@@ -167,7 +167,9 @@ Workflow contract:
 - Implement exactly this task on its own branch.
 - Run local verification before pushing.
 - Open a PR that references and closes this issue on merge.
-- Mark the PR ready for review and enable auto-merge after successful CI unless human follow-up is required.
+- Mark the PR ready for review and enable auto-merge after successful PR CI unless human follow-up is required.
+- Work is not complete until the post-merge `master` CI run is green.
+- If the shipped gateway app changes, bump the package version and publish a new MSI release after post-merge validation succeeds.
 - Treat unresolved GitHub review findings as merge blockers; address code review feedback before a PR is merged.
 "@
 }
@@ -278,7 +280,8 @@ Execution contract:
 9. If GitHub review findings already exist on the branch or PR, address them before considering the work ready for merge.
 10. For Windows gateway or other client-side tests, use this save path unless the task explicitly requires another fixture: $clientTestSavePath
 11. For Windows gateway or other client-side tests, do not attach to the user's installed gateway app or its live settings. Use an isolated settings file and alternate local port when needed.
-12. If you need human help, end stdout with exactly this machine-readable section:
+12. If you change shipped gateway app code or packaging, bump the package version so release automation produces a new MSI release tag.
+13. If you need human help, end stdout with exactly this machine-readable section:
 NOTES
 HUMAN_REQUIRED: yes
 HUMAN_REASON: <short reason>
@@ -577,6 +580,87 @@ function Wait-ForPrCompletion([string]$BranchName, [int]$PollSeconds, [int]$MaxW
     }
 }
 
+function Wait-ForWorkflowRunOnBranch {
+    param(
+        [string]$WorkflowName,
+        [string]$BranchName,
+        [datetimeoffset]$CreatedAfter,
+        [int]$PollSeconds,
+        [int]$MaxWaitMinutes
+    )
+
+    $deadline = (Get-Date).AddMinutes($MaxWaitMinutes)
+
+    while ($true) {
+        $runsJson = gh run list --workflow $WorkflowName --branch $BranchName --json databaseId,status,conclusion,url,createdAt,workflowName --limit 20
+        $runs = @()
+        if ($runsJson) {
+            $runs = $runsJson | ConvertFrom-Json
+        }
+
+        $matchingRuns = @($runs | Where-Object {
+            [datetimeoffset]::Parse($_.createdAt) -ge $CreatedAfter.AddSeconds(-5)
+        } | Sort-Object { [datetimeoffset]::Parse($_.createdAt) } -Descending)
+
+        if ($matchingRuns.Count -eq 0) {
+            if ((Get-Date) -gt $deadline) {
+                throw "Timed out waiting for workflow '$WorkflowName' to start on branch '$BranchName'."
+            }
+
+            Write-Host "Waiting for workflow '$WorkflowName' to start on '$BranchName'..."
+            Start-Sleep -Seconds $PollSeconds
+            continue
+        }
+
+        $run = $matchingRuns[0]
+        if ($run.status -ne "completed") {
+            if ((Get-Date) -gt $deadline) {
+                throw "Timed out waiting for workflow '$WorkflowName' on '$BranchName': $($run.url)"
+            }
+
+            Write-Host "Waiting for workflow '$WorkflowName': $($run.url) (status=$($run.status))"
+            Start-Sleep -Seconds $PollSeconds
+            continue
+        }
+
+        if ($run.conclusion -ne "success") {
+            throw "Workflow '$WorkflowName' failed on '$BranchName': $($run.url)"
+        }
+
+        return $run
+    }
+}
+
+function Wait-ForPostMergeMasterCi([string]$DefaultBranch, [string]$MergedAt, [int]$PollSeconds, [int]$MaxWaitMinutes) {
+    $createdAfter = [datetimeoffset]::Parse($MergedAt)
+    return Wait-ForWorkflowRunOnBranch -WorkflowName "CI" -BranchName $DefaultBranch -CreatedAfter $createdAfter -PollSeconds $PollSeconds -MaxWaitMinutes $MaxWaitMinutes
+}
+
+function Test-RequiresGatewayRelease([string[]]$ChangedPaths) {
+    foreach ($path in $ChangedPaths) {
+        if ($path -like "gateway/*" -or
+            $path -like "native-gateway/*" -or
+            $path -eq "package.json" -or
+            $path -eq "package-lock.json" -or
+            $path -eq ".github/workflows/release-gateway.yml" -or
+            $path -eq "scripts/publish-native-gateway.ps1") {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Start-GatewayRelease([string]$DefaultBranch) {
+    $triggeredAt = [datetimeoffset]::Now
+    gh workflow run "release-gateway.yml" --ref $DefaultBranch | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to trigger Release Gateway MSI workflow."
+    }
+
+    return $triggeredAt
+}
+
 function Get-AgentHumanRequirement([string]$OutputFile) {
     $result = [pscustomobject]@{
         required = $false
@@ -742,6 +826,15 @@ try {
     }
     Write-Host "Merge ready: $($reviewStatus.mergeReady)"
     Write-Host "PR merged at: $($completionStatus.mergedAt)"
+
+    $masterCiRun = Wait-ForPostMergeMasterCi -DefaultBranch $defaultBranch -MergedAt $completionStatus.mergedAt -PollSeconds $PrPollSeconds -MaxWaitMinutes $PrWaitMinutes
+    Write-Host "Post-merge master CI: $($masterCiRun.url)"
+
+    if (Test-RequiresGatewayRelease -ChangedPaths $changedPaths) {
+        $releaseTriggeredAt = Start-GatewayRelease -DefaultBranch $defaultBranch
+        $releaseRun = Wait-ForWorkflowRunOnBranch -WorkflowName "Release Gateway MSI" -BranchName $defaultBranch -CreatedAfter $releaseTriggeredAt -PollSeconds $PrPollSeconds -MaxWaitMinutes $PrWaitMinutes
+        Write-Host "Gateway release: $($releaseRun.url)"
+    }
 } finally {
     if (Test-Path -LiteralPath $tempPromptFile) {
         Remove-Item -LiteralPath $tempPromptFile -Force

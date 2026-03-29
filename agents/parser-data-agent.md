@@ -40,4 +40,6 @@ Own the data pipeline that turns D2R save inputs plus market sources into a cano
 - Treat each parser or data task as an issue-backed change set with a dedicated branch.
 - Keep migrations, schema updates, and parser behavior changes small enough to review in one PR.
 - Add or update focused validation where the repo already supports it, and run local verification before pushing.
+- Do not treat a task as complete until the merged `master` CI run is green.
+- If the shipped Windows gateway package changes, bump the package version and publish a new MSI release after post-merge validation succeeds.
 - Use draft PRs for active work and close issues through the merged PR rather than by hand.
