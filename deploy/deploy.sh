@@ -5,6 +5,7 @@ APP_ROOT="${APP_ROOT:-/srv/d2-wealth}"
 RELEASE_DIR="${RELEASE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 SHARED_DIR="${APP_ROOT}/shared"
 CURRENT_LINK="${APP_ROOT}/current"
+SITE_HOSTNAME="${SITE_HOSTNAME:-d2r.bjav.io}"
 NGINX_SOURCE="${RELEASE_DIR}/deploy/nginx/d2r.bjav.io.conf"
 NGINX_TARGET="/etc/nginx/sites-available/d2r.bjav.io.conf"
 NGINX_ENABLED_TARGET="/etc/nginx/sites-enabled/d2r.bjav.io.conf"
@@ -26,6 +27,23 @@ fi
 install -D -m 644 "${SYSTEMD_SOURCE}" "${SYSTEMD_TARGET}"
 install -D -m 644 "${NGINX_SOURCE}" "${NGINX_TARGET}"
 ln -sfn "${NGINX_TARGET}" "${NGINX_ENABLED_TARGET}"
+
+for candidate in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf; do
+  if [ ! -e "${candidate}" ]; then
+    continue
+  fi
+
+  resolved_candidate="$(readlink -f "${candidate}")"
+  resolved_target="$(readlink -f "${NGINX_TARGET}")"
+  if [ "${resolved_candidate}" = "${resolved_target}" ]; then
+    continue
+  fi
+
+  if grep -q "server_name ${SITE_HOSTNAME}" "${candidate}"; then
+    echo "Removing conflicting nginx site for ${SITE_HOSTNAME}: ${candidate}"
+    rm -f "${candidate}"
+  fi
+done
 
 ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
 
