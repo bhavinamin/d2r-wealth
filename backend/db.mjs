@@ -202,6 +202,13 @@ WHERE save_set_id IS NOT NULL;
 const nowIso = () => new Date().toISOString();
 const randomId = (prefix) => `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
 const tokenHash = (token) => crypto.createHash("sha256").update(token).digest("hex");
+const countRows = (sql, ...params) => Number(db.prepare(sql).get(...params)?.count ?? 0);
+const nearlyEqual = (left, right, epsilon = 1e-6) =>
+  typeof left === "number"
+  && Number.isFinite(left)
+  && typeof right === "number"
+  && Number.isFinite(right)
+  && Math.abs(left - right) <= epsilon;
 
 export const getDatabase = () => db;
 
@@ -748,6 +755,200 @@ export const readAccountClients = (accountId) =>
       importedAt: row.imported_at,
       totalHr: row.total_hr,
     }));
+
+export const readBackendHealth = ({ staleAfterMs = Number(process.env.D2_HEALTH_STALE_AFTER_MS ?? 1000 * 60 * 15) } = {}) => {
+  const checkedAt = nowIso();
+  const counts = {
+    users: countRows("SELECT COUNT(*) AS count FROM users"),
+    accounts: countRows("SELECT COUNT(*) AS count FROM accounts"),
+    latestSnapshots: countRows("SELECT COUNT(*) AS count FROM account_latest"),
+    snapshotHistory: countRows("SELECT COUNT(*) AS count FROM account_history"),
+    activeGatewayClients: countRows("SELECT COUNT(*) AS count FROM gateway_clients"),
+    activeGatewayTokens: countRows("SELECT COUNT(*) AS count FROM gateway_tokens WHERE revoked_at IS NULL"),
+  };
+
+  const latestRow = db
+    .prepare(
+      `SELECT
+         account_latest.account_id,
+         account_latest.client_id,
+         account_latest.received_at,
+         account_latest.save_set_id,
+         account_latest.report_json,
+         accounts.name AS account_name
+       FROM account_latest
+       JOIN accounts ON accounts.id = account_latest.account_id
+       ORDER BY account_latest.received_at DESC
+       LIMIT 1`,
+    )
+    .get();
+
+  const checks = {
+    database: {
+      status: "pass",
+      detail: `SQLite ready at ${DB_PATH}.`,
+      counts,
+    },
+    freshness: {
+      status: "warn",
+      detail: "No synced account snapshot has been recorded yet.",
+      staleAfterMs,
+    },
+    accuracy: {
+      status: "warn",
+      detail: "No synced account snapshot is available yet, so pricing accuracy has not been observed.",
+      unresolvedCount: 0,
+      ambiguousCount: 0,
+      totalWarnings: 0,
+    },
+    validity: {
+      status: "warn",
+      detail: "No synced account snapshot is available yet, so report validity checks are waiting for the first upload.",
+      issues: [],
+      warnings: [],
+    },
+  };
+
+  let latestSnapshot = null;
+  if (latestRow) {
+    const report = JSON.parse(latestRow.report_json);
+    const parsedSaveData = readAccountParsedData(latestRow.account_id);
+    const reportCharacters = Array.isArray(report?.characters) ? report.characters : [];
+    const snapshot = report?.snapshot ?? {};
+    const valuationWarnings = report?.valuationWarnings ?? {};
+    const unresolvedCount = Number(valuationWarnings.unresolvedCount ?? 0);
+    const ambiguousCount = Number(valuationWarnings.ambiguousCount ?? 0);
+    const totalWarnings = Number(valuationWarnings.totalCount ?? unresolvedCount + ambiguousCount);
+    const parsedCharacterCount = Array.isArray(parsedSaveData.characters) ? parsedSaveData.characters.length : 0;
+    const parsedStashCount = Array.isArray(parsedSaveData.stashes) ? parsedSaveData.stashes.length : 0;
+    const parsedDataAvailable = parsedCharacterCount > 0 || parsedStashCount > 0;
+    const ageMs = Math.max(0, Date.now() - new Date(latestRow.received_at).getTime());
+
+    latestSnapshot = {
+      accountId: latestRow.account_id,
+      accountName: latestRow.account_name,
+      clientId: latestRow.client_id,
+      receivedAt: latestRow.received_at,
+      importedAt: report?.importedAt ?? null,
+      saveSetId: latestRow.save_set_id ?? null,
+      totalHr: typeof report?.totalHr === "number" ? report.totalHr : null,
+      characterCount: reportCharacters.length,
+      parsedCharacterCount,
+      parsedStashCount,
+      unresolvedCount,
+      ambiguousCount,
+      totalWarnings,
+      ageMs,
+    };
+
+    checks.freshness = ageMs > staleAfterMs
+      ? {
+          status: "warn",
+          detail: `Latest account snapshot is stale at ${latestRow.received_at}.`,
+          latestReceivedAt: latestRow.received_at,
+          ageMs,
+          staleAfterMs,
+        }
+      : {
+          status: "pass",
+          detail: `Latest account snapshot was recorded at ${latestRow.received_at}.`,
+          latestReceivedAt: latestRow.received_at,
+          ageMs,
+          staleAfterMs,
+        };
+
+    checks.accuracy = totalWarnings > 0
+      ? {
+          status: "warn",
+          detail: `Latest account snapshot surfaced ${totalWarnings} pricing warning(s).`,
+          unresolvedCount,
+          ambiguousCount,
+          totalWarnings,
+        }
+      : {
+          status: "pass",
+          detail: "Latest account snapshot has no unresolved or ambiguous pricing warnings.",
+          unresolvedCount,
+          ambiguousCount,
+          totalWarnings,
+        };
+
+    const issues = [];
+    const warnings = [];
+
+    if (
+      typeof report?.totalHr === "number"
+      && typeof snapshot?.totalHr === "number"
+      && !nearlyEqual(report.totalHr, snapshot.totalHr)
+    ) {
+      issues.push("snapshot_total_mismatch");
+    }
+
+    if (
+      typeof snapshot?.characterCount === "number"
+      && snapshot.characterCount !== reportCharacters.length
+    ) {
+      issues.push("snapshot_character_count_mismatch");
+    }
+
+    if (
+      latestRow.save_set_id
+      && report?.saveSetId
+      && String(latestRow.save_set_id) !== String(report.saveSetId)
+    ) {
+      issues.push("save_set_id_mismatch");
+    }
+
+    if (parsedDataAvailable && parsedCharacterCount !== reportCharacters.length) {
+      issues.push("parsed_character_count_mismatch");
+    }
+
+    if (!parsedDataAvailable) {
+      warnings.push("missing_parsed_save_data");
+    }
+
+    if (!reportCharacters.length) {
+      warnings.push("empty_character_report");
+    }
+
+    checks.validity = issues.length
+      ? {
+          status: "fail",
+          detail: `Latest account snapshot failed ${issues.length} validity check(s).`,
+          issues,
+          warnings,
+        }
+      : warnings.length
+        ? {
+            status: "warn",
+            detail: `Latest account snapshot passed strict validity checks with ${warnings.length} warning(s).`,
+            issues,
+            warnings,
+          }
+        : {
+            status: "pass",
+            detail: "Latest account snapshot passed report validity checks.",
+            issues,
+            warnings,
+          };
+  }
+
+  const overallStatus = Object.values(checks).some((check) => check.status === "fail")
+    ? "fail"
+    : Object.values(checks).some((check) => check.status === "warn")
+      ? "warn"
+      : "pass";
+
+  return {
+    ok: overallStatus !== "fail",
+    status: overallStatus,
+    checkedAt,
+    dataDir: DATA_DIR,
+    dbPath: DB_PATH,
+    checks,
+    latestSnapshot,
+  };
+};
 
 export const resetMarketTables = () => {
   db.exec(`

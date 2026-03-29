@@ -243,6 +243,15 @@ const claimPairing = async (backendBaseUrl, pairingId, pairingSecret) =>
     body: JSON.stringify({ pairingSecret }),
   });
 
+const createApprovedGatewayClaim = async (ctx, clientId) => {
+  const pairing = await createPairing(ctx.backendBaseUrl, clientId);
+  await approvePairing(ctx.backendBaseUrl, pairing.pairingId, ctx.sessionCookie);
+  const { response, body } = await claimPairing(ctx.backendBaseUrl, pairing.pairingId, pairing.pairingSecret);
+  assert.equal(response.status, 200);
+  assert.equal(body.status, "approved");
+  return body;
+};
+
 test("pairing issues a token only after approval and consumes the pairing on first successful claim", async (t) => {
   const ctx = await loadIntegrationContext("pairing");
   t.after(ctx.close);
@@ -364,6 +373,99 @@ test("gateway status summary reports explicit save, pairing, sync, and last-erro
   assert.equal(readyStatus.statusSummary.pairing.state, "ready");
   assert.equal(readyStatus.statusSummary.sync.state, "not-paired");
   assert.equal(readyStatus.statusSummary.lastError, null);
+});
+
+test("backend health reports freshness and pricing warning counts without failing the service", async (t) => {
+  const ctx = await loadIntegrationContext("backend-health-warn");
+  t.after(ctx.close);
+
+  const { response: initialHealthResponse, body: initialHealth } = await fetchJson(`${ctx.backendBaseUrl}/health`);
+  assert.equal(initialHealthResponse.status, 200);
+  assert.equal(initialHealth.ok, true);
+  assert.equal(initialHealth.status, "warn");
+  assert.equal(initialHealth.checks.database.status, "pass");
+  assert.equal(initialHealth.checks.freshness.status, "warn");
+  assert.equal(initialHealth.checks.accuracy.status, "warn");
+  assert.equal(initialHealth.checks.validity.status, "warn");
+  assert.equal(initialHealth.latestSnapshot, null);
+
+  const claimed = await createApprovedGatewayClaim(ctx, "desktop-health-warn");
+  const report = createReport("HealthWarn", 16.5, "2026-03-29T12:40:00.000Z");
+  report.valuationWarnings = {
+    totalCount: 2,
+    unresolvedCount: 1,
+    ambiguousCount: 1,
+    items: [
+      { kind: "unresolved", name: "Unknown Relic" },
+      { kind: "ambiguous", name: "Mystery Ring" },
+    ],
+  };
+
+  const { response: ingestResponse } = await fetchJson(`${ctx.backendBaseUrl}/api/ingest`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${claimed.gatewayToken}`,
+    },
+    body: JSON.stringify({
+      clientId: claimed.clientId,
+      report,
+      parsedSaveData: report.parsedSaveData,
+    }),
+  });
+  assert.equal(ingestResponse.status, 200);
+
+  const { response: healthResponse, body: health } = await fetchJson(`${ctx.backendBaseUrl}/health`);
+  assert.equal(healthResponse.status, 200);
+  assert.equal(health.ok, true);
+  assert.equal(health.status, "warn");
+  assert.equal(health.checks.freshness.status, "pass");
+  assert.equal(health.checks.accuracy.status, "warn");
+  assert.equal(health.checks.accuracy.totalWarnings, 2);
+  assert.equal(health.checks.accuracy.unresolvedCount, 1);
+  assert.equal(health.checks.accuracy.ambiguousCount, 1);
+  assert.equal(health.checks.validity.status, "pass");
+  assert.equal(health.latestSnapshot.accountId, ctx.account.id);
+  assert.equal(health.latestSnapshot.clientId, claimed.clientId);
+  assert.equal(health.latestSnapshot.totalHr, 16.5);
+  assert.equal(health.latestSnapshot.parsedCharacterCount, 1);
+});
+
+test("backend health fails when the latest synced snapshot is internally inconsistent", async (t) => {
+  const ctx = await loadIntegrationContext("backend-health-fail");
+  t.after(ctx.close);
+
+  const claimed = await createApprovedGatewayClaim(ctx, "desktop-health-fail");
+  const report = createReport("HealthFail", 9.25, "2026-03-29T12:45:00.000Z");
+  report.snapshot.totalHr = 10.25;
+  report.snapshot.characterCount = 4;
+
+  const { response: ingestResponse } = await fetchJson(`${ctx.backendBaseUrl}/api/ingest`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${claimed.gatewayToken}`,
+    },
+    body: JSON.stringify({
+      clientId: claimed.clientId,
+      report,
+      parsedSaveData: report.parsedSaveData,
+    }),
+  });
+  assert.equal(ingestResponse.status, 200);
+
+  const { response: healthResponse, body: health } = await fetchJson(`${ctx.backendBaseUrl}/health`);
+  assert.equal(healthResponse.status, 503);
+  assert.equal(health.ok, false);
+  assert.equal(health.status, "fail");
+  assert.equal(health.checks.accuracy.status, "pass");
+  assert.equal(health.checks.validity.status, "fail");
+  assert.deepEqual(
+    health.checks.validity.issues.sort(),
+    ["snapshot_character_count_mismatch", "snapshot_total_mismatch"],
+  );
+  assert.equal(health.latestSnapshot.accountId, ctx.account.id);
+  assert.equal(health.latestSnapshot.totalHr, 9.25);
 });
 
 test("gateway sync covers token-based ingest, latest/history reads, and disconnect cleanup", async (t) => {
