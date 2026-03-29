@@ -134,6 +134,23 @@ const deriveGatewayUrl = () => {
   return "http://127.0.0.1:3187";
 };
 
+const normalizeBackendUrl = (value: string, location: Location) => {
+  const fallback = value.trim();
+  if (!fallback) {
+    return fallback;
+  }
+
+  try {
+    const url = new URL(fallback, location.origin);
+    if (location.protocol === "https:" && url.protocol === "http:" && url.host === location.host) {
+      url.protocol = "https:";
+    }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return fallback.replace(/\/+$/, "");
+  }
+};
+
 const deriveBackendConfig = () => {
   if (typeof window === "undefined") {
     return { backendUrl: "", accountId: "" };
@@ -144,7 +161,10 @@ const deriveBackendConfig = () => {
     window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
       ? "http://127.0.0.1:3197"
       : window.location.origin;
-  const backendUrl = params.get("backend") || window.localStorage.getItem(BACKEND_URL_KEY) || defaultBackendUrl;
+  const backendUrl = normalizeBackendUrl(
+    params.get("backend") || window.localStorage.getItem(BACKEND_URL_KEY) || defaultBackendUrl,
+    window.location,
+  );
   const accountId = params.get("account") || window.localStorage.getItem(ACCOUNT_ID_KEY) || "";
   return { backendUrl, accountId };
 };
