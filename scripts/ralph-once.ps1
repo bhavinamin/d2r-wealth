@@ -2,8 +2,8 @@
 param(
     [string]$PrdPath = "PRD.md",
     [string]$ProgressPath = "progress.txt",
-    [string]$RalphCommandTemplate = 'ralph run --cwd "{REPO_ROOT}" --prompt-file "{PROMPT_FILE}"',
-    [string]$VerificationCommand = "",
+    [string]$AgentCommandTemplate = "",
+    [string]$VerificationCommand = ".\\scripts\\verify.ps1",
     [string]$CommitPrefix = "ralph",
     [string]$RemoteName = "origin",
     [string]$ReviewTriggerComment = "@codex review",
@@ -215,26 +215,7 @@ function Get-VerificationCommand([string]$RepoRoot, [string]$ExplicitCommand) {
     if ($ExplicitCommand) {
         return $ExplicitCommand
     }
-
-    $packageJsonPath = Join-Path $RepoRoot "package.json"
-    if (-not (Test-Path -LiteralPath $packageJsonPath)) {
-        return ""
-    }
-
-    $packageJson = Get-Content -LiteralPath $packageJsonPath -Raw | ConvertFrom-Json
-    $scriptNames = @()
-    if ($packageJson.scripts) {
-        $scriptNames = $packageJson.scripts.PSObject.Properties.Name
-    }
-
-    if ($scriptNames -contains "test") {
-        return "npm test"
-    }
-    if ($scriptNames -contains "build") {
-        return "npm run build"
-    }
-
-    return ""
+    return ".\\scripts\\verify.ps1"
 }
 
 function New-RalphPrompt {
@@ -310,8 +291,17 @@ function Invoke-ExternalCommand([string]$CommandText, [string]$FailureMessage) {
 }
 
 function Invoke-Ralph([string]$CommandTemplate, [string]$RepoRoot, [string]$PromptFile) {
-    $expanded = $CommandTemplate.Replace("{REPO_ROOT}", $RepoRoot).Replace("{PROMPT_FILE}", $PromptFile)
-    Invoke-ExternalCommand -CommandText $expanded -FailureMessage "Ralph command failed with exit code $LASTEXITCODE."
+    if ($CommandTemplate) {
+        $expanded = $CommandTemplate.Replace("{REPO_ROOT}", $RepoRoot).Replace("{PROMPT_FILE}", $PromptFile)
+        Invoke-ExternalCommand -CommandText $expanded -FailureMessage "Agent command failed with exit code $LASTEXITCODE."
+        return
+    }
+
+    Write-Host "Running: codex exec - -C `"$RepoRoot`" --dangerously-bypass-approvals-and-sandbox"
+    Get-Content -LiteralPath $PromptFile -Raw | codex exec - -C $RepoRoot --dangerously-bypass-approvals-and-sandbox
+    if ($LASTEXITCODE -ne 0) {
+        throw "Codex command failed with exit code $LASTEXITCODE."
+    }
 }
 
 function Invoke-Verification([string]$VerificationCommand) {
@@ -489,6 +479,7 @@ function Get-PrReviewStatus([string]$BranchName) {
 
 Assert-CommandAvailable -Name "git"
 Assert-CommandAvailable -Name "gh"
+Assert-CommandAvailable -Name "codex"
 
 $repoRoot = Resolve-RepoRoot
 $prdFile = Resolve-ExistingPath -RepoRoot $repoRoot -PathValue $PrdPath -Label "PRD file"
@@ -518,7 +509,7 @@ $tempPromptFile = Join-Path ([System.IO.Path]::GetTempPath()) ("ralph-once-" + [
 Set-Content -LiteralPath $tempPromptFile -Value $prompt -Encoding UTF8
 
 try {
-    Invoke-Ralph -CommandTemplate $RalphCommandTemplate -RepoRoot $repoRoot -PromptFile $tempPromptFile
+    Invoke-Ralph -CommandTemplate $AgentCommandTemplate -RepoRoot $repoRoot -PromptFile $tempPromptFile
 
     $changedPaths = Get-ChangedPaths -BaselinePaths $baselinePaths
     if (-not $changedPaths -or $changedPaths.Count -eq 0) {
