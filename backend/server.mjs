@@ -175,6 +175,21 @@ const sessionCookie = (sessionId) =>
 
 const clearSessionCookie = () => `${COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${COOKIE_SECURE ? "; Secure" : ""}`;
 
+const forwardedProto = (request) => {
+  const raw = String(request.headers["x-forwarded-proto"] ?? "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  return raw.split(",")[0]?.trim() || null;
+};
+
+const requestOrigin = (request, url) => {
+  const host = request.headers.host || `${HOST}:${PORT}`;
+  const protocol = forwardedProto(request) || url.protocol.replace(/:$/, "");
+  return `${protocol}://${host}`;
+};
+
 const sessionForRequest = (request) => {
   const cookies = parseCookies(request);
   const sessionId = cookies[COOKIE_NAME];
@@ -465,10 +480,10 @@ export const createBackendServer = () => http.createServer(async (request, respo
       const payload = JSON.parse(await readBody(request));
       const clientId = String(payload.clientId ?? "gateway").trim() || "gateway";
       const created = createGatewayPairing({ clientId });
-      const backendHost = request.headers.host || `${HOST}:${PORT}`;
+      const backendOrigin = requestOrigin(request, url);
       const pairReturnUrl = new URL(`${APP_REDIRECT_URI.replace(/\/+$/, "")}/`);
       pairReturnUrl.searchParams.set("pair", created.id);
-      pairReturnUrl.searchParams.set("backend", `${url.protocol}//${backendHost}`);
+      pairReturnUrl.searchParams.set("backend", backendOrigin);
       sendJson(request, response, 200, {
         pairingId: created.id,
         pairingSecret: created.pairingSecret,

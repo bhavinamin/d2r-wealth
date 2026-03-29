@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -295,6 +296,53 @@ test("pairing issues a token only after approval and consumes the pairing on fir
   );
   assert.equal(consumedClaimResponse.status, 410);
   assert.equal(consumedClaim.status, "consumed");
+});
+
+test("pairing URL uses the forwarded public https origin for browser return flow", async (t) => {
+  const ctx = await loadIntegrationContext("public-origin");
+  t.after(ctx.close);
+
+  const backendUrl = new URL(ctx.backendBaseUrl);
+  const payload = JSON.stringify({ clientId: "desktop-public-origin" });
+  const responseText = await new Promise((resolve, reject) => {
+    const request = http.request({
+      protocol: backendUrl.protocol,
+      hostname: backendUrl.hostname,
+      port: backendUrl.port,
+      path: "/api/gateway/pairing-sessions",
+      method: "POST",
+      headers: {
+        host: "d2r.bjav.io",
+        "x-forwarded-proto": "https",
+        "content-type": "application/json",
+        "content-length": Buffer.byteLength(payload),
+      },
+    }, (response) => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => {
+        body += chunk;
+      });
+      response.on("end", () => {
+        try {
+          assert.equal(response.statusCode, 200);
+          resolve(body);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+
+    request.on("error", reject);
+    request.write(payload);
+    request.end();
+  });
+
+  const payloadJson = JSON.parse(responseText);
+  const pairingUrl = new URL(payloadJson.pairingUrl);
+  const returnTo = new URL(pairingUrl.searchParams.get("returnTo"));
+
+  assert.equal(returnTo.searchParams.get("backend"), "https://d2r.bjav.io");
 });
 
 test("gateway status summary reports explicit save, pairing, sync, and last-error states", async () => {
