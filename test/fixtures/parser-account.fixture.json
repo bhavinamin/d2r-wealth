@@ -1,0 +1,168 @@
+{
+  "accountDirName": "fixture-account",
+  "reportImportedAt": "2026-03-29T16:00:00.000Z",
+  "character": {
+    "fileName": "FixtureSorc.d2s",
+    "name": "FixtureSorc",
+    "className": "Sorceress",
+    "level": 90,
+    "items": [
+      {
+        "template": "harlequin-crest",
+        "location": "equipped",
+        "equippedId": 1,
+        "x": 0,
+        "y": 0
+      }
+    ]
+  },
+  "sharedStash": {
+    "fileName": "SharedStashSoftCoreV2.d2i",
+    "pages": [
+      {
+        "name": "Valuables",
+        "isStackable": 0,
+        "items": [
+          {
+            "template": "harlequin-crest",
+            "location": "shared-stash",
+            "x": 0,
+            "y": 0
+          }
+        ]
+      },
+      {
+        "name": "Materials",
+        "isStackable": 1,
+        "items": [
+          {
+            "template": "jah-rune",
+            "location": "shared-stash",
+            "x": 1,
+            "y": 0,
+            "stackAmount": 2
+          },
+          {
+            "template": "ist-rune",
+            "location": "shared-stash",
+            "x": 2,
+            "y": 0,
+            "stackAmount": 4
+          },
+          {
+            "template": "ber-rune",
+            "location": "shared-stash",
+            "x": 3,
+            "y": 0,
+            "stackAmount": 0
+          }
+        ]
+      }
+    ]
+  },
+  "expectedReport": {
+    "importedAt": "2026-03-29T16:00:00.000Z",
+    "saveSetId": "15304a871e250089e79f0bbe06f82019b57c60c1fd2ec7cc0a8ef72b2ecbe8e7",
+    "totalHr": 3.1875,
+    "runeHr": 3,
+    "equippedHr": 0.0938,
+    "stashHr": 0,
+    "sharedHr": 3.0938,
+    "characters": [
+      {
+        "name": "FixtureSorc",
+        "className": "Sorceress",
+        "level": 90,
+        "ruleset": "LoD",
+        "equippedHr": 0.094,
+        "stashHr": 0
+      }
+    ],
+    "runeSummary": [
+      {
+        "name": "Jah",
+        "count": 2,
+        "looseCount": 2,
+        "totalHr": 2.5
+      },
+      {
+        "name": "Ist",
+        "count": 4,
+        "looseCount": 4,
+        "totalHr": 0.5
+      }
+    ],
+    "topCharacterStash": [],
+    "topInventory": [],
+    "topSharedStash": [
+      {
+        "id": "SharedStashSoftCoreV2.d2i-SharedStashSoftCoreV2.d2i page 1 item 1-Harlequin Crest",
+        "name": "Harlequin Crest",
+        "quantity": 2,
+        "owner": "SharedStashSoftCoreV2.d2i",
+        "location": "shared-stash",
+        "source": "SharedStashSoftCoreV2.d2i page 1 item 1",
+        "sheet": "UniqueSet Market",
+        "valueHr": 0.09375,
+        "tradeValue": "Mal",
+        "matchedBy": "exact"
+      }
+    ],
+    "allValuedItems": [
+      {
+        "id": "SharedStashSoftCoreV2.d2i-SharedStashSoftCoreV2.d2i materials 1-Jah Rune",
+        "name": "Jah Rune",
+        "quantity": 2,
+        "owner": "SharedStashSoftCoreV2.d2i",
+        "location": "shared-stash",
+        "source": "SharedStashSoftCoreV2.d2i materials 1",
+        "valueHr": 2.5,
+        "matchedBy": "token"
+      },
+      {
+        "id": "SharedStashSoftCoreV2.d2i-SharedStashSoftCoreV2.d2i materials 2-Ist Rune",
+        "name": "Ist Rune",
+        "quantity": 4,
+        "owner": "SharedStashSoftCoreV2.d2i",
+        "location": "shared-stash",
+        "source": "SharedStashSoftCoreV2.d2i materials 2",
+        "valueHr": 0.5,
+        "matchedBy": "token"
+      },
+      {
+        "id": "FixtureSorc-FixtureSorc equipped 1-Harlequin Crest",
+        "name": "Harlequin Crest",
+        "quantity": 1,
+        "owner": "FixtureSorc",
+        "location": "equipped",
+        "source": "FixtureSorc equipped 1",
+        "sheet": "UniqueSet Market",
+        "valueHr": 0.09375,
+        "tradeValue": "Mal",
+        "matchedBy": "exact"
+      },
+      {
+        "id": "SharedStashSoftCoreV2.d2i-SharedStashSoftCoreV2.d2i page 1 item 1-Harlequin Crest",
+        "name": "Harlequin Crest",
+        "quantity": 2,
+        "owner": "SharedStashSoftCoreV2.d2i",
+        "location": "shared-stash",
+        "source": "SharedStashSoftCoreV2.d2i page 1 item 1",
+        "sheet": "UniqueSet Market",
+        "valueHr": 0.09375,
+        "tradeValue": "Mal",
+        "matchedBy": "exact"
+      }
+    ],
+    "unmatchedItems": [],
+    "snapshot": {
+      "importedAt": "2026-03-29T16:00:00.000Z",
+      "totalHr": 3.1875,
+      "runeHr": 3,
+      "equippedHr": 0.0938,
+      "stashHr": 0,
+      "sharedHr": 3.0938,
+      "characterCount": 1
+    }
+  }
+}
