@@ -75,7 +75,12 @@ function Invoke-LoggedPowerShellFile([string]$ScriptPath, [string[]]$Arguments, 
     $joinedArguments = if ($Arguments -and $Arguments.Count -gt 0) { $Arguments -join " " } else { "" }
     $command = "powershell -ExecutionPolicy Bypass -File `"$ScriptPath`" $joinedArguments".Trim()
     Write-Host "Running: $command"
-    & powershell -ExecutionPolicy Bypass -File $ScriptPath @Arguments 2>&1 | Tee-Object -FilePath $OutputFile
+    $cmdCommand = "powershell -ExecutionPolicy Bypass -File ""$ScriptPath"""
+    if ($joinedArguments) {
+        $cmdCommand += " $joinedArguments"
+    }
+
+    & cmd.exe /d /s /c "$cmdCommand 2>&1" | Tee-Object -FilePath $OutputFile
     return $LASTEXITCODE
 }
 
