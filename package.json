@@ -23,7 +23,9 @@
     "backend": "node ./backend/server.mjs",
     "gateway": "node ./gateway/server.mjs",
     "gateway:tray": "electron ./gateway/tray.mjs",
-    "dist:gateway": "npm run generate:market && electron-builder --win msi"
+    "dist:gateway": "npm run generate:market && electron-builder --win msi",
+    "native:build": "dotnet build ./native-gateway/D2Wealth.Gateway.Win/D2Wealth.Gateway.Win.csproj -c Release",
+    "native:publish": "powershell -ExecutionPolicy Bypass -File ./scripts/publish-native-gateway.ps1"
   },
   "dependencies": {
     "@d2runewizard/d2s": "^2.0.130",

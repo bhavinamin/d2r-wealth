@@ -182,20 +182,28 @@ internal sealed class ConsoleGatewayHost
             return $"Gateway API not reachable at http://{settings.Host}:{settings.Port}.";
         }
 
-        var validation = health.SaveValidation is null
-            ? "validation unknown"
-            : health.SaveValidation.Valid
-                ? $"validation ok ({health.SaveValidation.CharacterCount} characters)"
-                : $"validation failed ({health.SaveValidation.Message})";
-        var sync = !string.IsNullOrWhiteSpace(health.LastBackendSyncError)
-            ? $"sync error: {health.LastBackendSyncError}"
-            : !string.IsNullOrWhiteSpace(health.LastBackendSyncAt)
-                ? $"last sync: {health.LastBackendSyncAt}"
-                : string.IsNullOrWhiteSpace(health.SyncToken)
-                    ? "not linked"
-                    : "linked, waiting for first sync";
+        var lifecycle = GatewayStatusPresentation.LifecycleLabel(health);
+        var saveLabel = health.StatusSummary?.Save?.Label ?? (health.SaveValidation?.Valid == true ? "Ready" : "Needs Attention");
+        var saveDetail = health.StatusSummary?.Save?.Detail ?? health.SaveValidation?.Message ?? "Waiting for save scan.";
+        var pairingLabel = health.StatusSummary?.Pairing?.Label ?? (string.IsNullOrWhiteSpace(health.SyncToken) ? "Ready To Pair" : "Paired");
+        var pairingDetail = health.StatusSummary?.Pairing?.Detail ?? GatewayStatusPresentation.PairingMessage(health, hasUnsavedChanges: false);
+        var syncLabel = health.StatusSummary?.Sync?.Label ?? lifecycle;
+        var syncDetail = health.StatusSummary?.Sync?.Detail ?? GatewayStatusPresentation.LifecycleDetail(health);
+        var lastErrorLabel = GatewayStatusPresentation.ErrorHeadline(health);
+        var lastErrorDetail = GatewayStatusPresentation.ErrorDetail(health);
+        var lastUpdate = health.LastSuccessfulAccountUpdateAt ?? "Never";
 
-        return $"Gateway ok={health.Ok}; saveDir='{health.SaveDir}'; {validation}; {sync}.";
+        return string.Join(
+            Environment.NewLine,
+            [
+                $"Lifecycle: {lifecycle}",
+                $"Save Folder: {health.SaveDir}",
+                $"Save Validation: {saveLabel} - {saveDetail}",
+                $"Pairing: {pairingLabel} - {pairingDetail}",
+                $"Sync: {syncLabel} - {syncDetail}",
+                $"Last Error: {lastErrorLabel} - {lastErrorDetail}",
+                $"Last Account Update: {lastUpdate}",
+            ]);
     }
 
     private void PrintHelp()

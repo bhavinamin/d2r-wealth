@@ -19,14 +19,23 @@ internal sealed class GatewayHealth
     [JsonPropertyName("syncToken")]
     public string SyncToken { get; set; } = string.Empty;
 
+    [JsonPropertyName("files")]
+    public List<GatewayTrackedFile> Files { get; set; } = [];
+
     [JsonPropertyName("lastBackendSyncAt")]
     public string? LastBackendSyncAt { get; set; }
 
     [JsonPropertyName("lastBackendSyncError")]
     public string? LastBackendSyncError { get; set; }
 
+    [JsonPropertyName("lastSuccessfulAccountUpdateAt")]
+    public string? LastSuccessfulAccountUpdateAt { get; set; }
+
     [JsonPropertyName("saveValidation")]
     public SaveValidationStatus? SaveValidation { get; set; }
+
+    [JsonPropertyName("statusSummary")]
+    public GatewayStatusSummary? StatusSummary { get; set; }
 }
 
 internal sealed class SaveValidationStatus
@@ -42,6 +51,51 @@ internal sealed class SaveValidationStatus
 
     [JsonPropertyName("checkedAt")]
     public string? CheckedAt { get; set; }
+
+    [JsonPropertyName("nextRetryAt")]
+    public string? NextRetryAt { get; set; }
+}
+
+internal sealed class GatewayStatusSummary
+{
+    [JsonPropertyName("save")]
+    public GatewayStatusEntry? Save { get; set; }
+
+    [JsonPropertyName("pairing")]
+    public GatewayStatusEntry? Pairing { get; set; }
+
+    [JsonPropertyName("sync")]
+    public GatewayStatusEntry? Sync { get; set; }
+
+    [JsonPropertyName("lastError")]
+    public GatewayStatusError? LastError { get; set; }
+
+    [JsonPropertyName("dashboardFreshness")]
+    public GatewayStatusEntry? DashboardFreshness { get; set; }
+}
+
+internal sealed class GatewayStatusEntry
+{
+    [JsonPropertyName("state")]
+    public string State { get; set; } = string.Empty;
+
+    [JsonPropertyName("label")]
+    public string Label { get; set; } = string.Empty;
+
+    [JsonPropertyName("detail")]
+    public string Detail { get; set; } = string.Empty;
+}
+
+internal sealed class GatewayStatusError
+{
+    [JsonPropertyName("scope")]
+    public string Scope { get; set; } = string.Empty;
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
+
+    [JsonPropertyName("occurredAt")]
+    public string? OccurredAt { get; set; }
 }
 
 internal sealed class PairingSessionResponse
@@ -63,4 +117,19 @@ internal sealed class PairingClaimResponse
 
     [JsonPropertyName("gatewayToken")]
     public string GatewayToken { get; set; } = string.Empty;
+}
+
+internal sealed class GatewayTrackedFile
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("size")]
+    public long Size { get; set; }
+
+    [JsonPropertyName("modifiedAt")]
+    public string? ModifiedAt { get; set; }
+
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = string.Empty;
 }
