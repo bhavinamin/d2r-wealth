@@ -22,7 +22,7 @@ function Resolve-RepoRoot {
     if (-not $root) {
         throw "This script must be run inside a git repository."
     }
-    return ([string]$root).Trim()
+    return "$root".Trim()
 }
 
 function Resolve-PathInRepo([string]$RepoRoot, [string]$PathValue) {
@@ -72,7 +72,7 @@ function Get-RepoInfo {
 }
 
 function Get-CurrentBranch {
-    return ([string](git rev-parse --abbrev-ref HEAD)).Trim()
+    return "$(git rev-parse --abbrev-ref HEAD)".Trim()
 }
 
 function Assert-OnDefaultBranch([string]$DefaultBranch) {
@@ -176,7 +176,7 @@ function Ensure-Issue([string]$Task, [string]$PrdFile) {
     }
 
     $issueBody = New-IssueBody -Task $Task -PrdFile $PrdFile
-    $issueUrl = ([string](gh issue create --title $Task --body $issueBody)).Trim()
+    $issueUrl = "$(gh issue create --title $Task --body $issueBody)".Trim()
     return [pscustomobject]@{
         number = Get-IssueNumberFromUrl -Url $issueUrl
         title  = $Task
@@ -186,7 +186,7 @@ function Ensure-Issue([string]$Task, [string]$PrdFile) {
 
 function Ensure-TaskBranch([string]$RemoteName, [int]$IssueNumber, [string]$Task) {
     $branchName = "task/$IssueNumber-$(Convert-ToSlug -Value $Task)"
-    $localBranch = ([string](git branch --list $branchName)).Trim()
+    $localBranch = "$(git branch --list $branchName)".Trim()
     if ($localBranch) {
         git switch $branchName | Out-Null
         return $branchName
@@ -412,7 +412,7 @@ function Ensure-DraftPr([string]$RemoteName, [string]$BaseBranch, [string]$Branc
     }
 
     $prBody = New-PrBody -IssueNumber $IssueNumber -Task $Task -VerificationCommand $VerificationCommand
-    $prUrl = ([string](gh pr create --draft --base $BaseBranch --head $BranchName --title $Title --body $prBody)).Trim()
+    $prUrl = "$(gh pr create --draft --base $BaseBranch --head $BranchName --title $Title --body $prBody)".Trim()
     return [pscustomobject]@{
         url   = $prUrl
         title = $Title
