@@ -3,11 +3,19 @@ param(
     [string]$PrdPath = "PRD.md",
     [string]$ProgressPath = "progress.txt",
     [string]$RalphCommandTemplate = 'ralph run --cwd "{REPO_ROOT}" --prompt-file "{PROMPT_FILE}"',
+    [string]$VerificationCommand = "",
     [string]$CommitPrefix = "ralph",
+    [string]$RemoteName = "origin",
     [switch]$ShowPrompt
 )
 
 $ErrorActionPreference = "Stop"
+
+function Assert-CommandAvailable([string]$Name) {
+    if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
+        throw "Required command not found on PATH: $Name"
+    }
+}
 
 function Resolve-RepoRoot {
     $root = git rev-parse --show-toplevel 2>$null
@@ -17,28 +25,66 @@ function Resolve-RepoRoot {
     return $root.Trim()
 }
 
-function Assert-CleanWorktree {
-    $status = git status --porcelain --untracked-files=no
-    if ($status) {
-        throw @"
-Refusing to run with a dirty worktree.
-Commit, stash, or clean tracked changes first so this script does not accidentally include unrelated work.
-"@
+function Resolve-PathInRepo([string]$RepoRoot, [string]$PathValue) {
+    if ([System.IO.Path]::IsPathRooted($PathValue)) {
+        return [System.IO.Path]::GetFullPath($PathValue)
     }
+    return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $PathValue))
 }
 
 function Resolve-ExistingPath([string]$RepoRoot, [string]$PathValue, [string]$Label) {
-    $candidate = if ([System.IO.Path]::IsPathRooted($PathValue)) {
-        $PathValue
-    } else {
-        Join-Path $RepoRoot $PathValue
-    }
-
-    $resolved = [System.IO.Path]::GetFullPath($candidate)
+    $resolved = Resolve-PathInRepo -RepoRoot $RepoRoot -PathValue $PathValue
     if (-not (Test-Path -LiteralPath $resolved)) {
         throw "$Label not found: $resolved"
     }
     return $resolved
+}
+
+function Assert-CleanTrackedWorktree {
+    $status = git status --porcelain --untracked-files=no
+    if ($status) {
+        throw @"
+Refusing to run with tracked modifications in the worktree.
+Commit, stash, or clean tracked changes first so this script can create one issue-backed branch cleanly.
+"@
+    }
+}
+
+function Get-StatusPaths {
+    $paths = @()
+    foreach ($line in (git status --porcelain)) {
+        if (-not $line) {
+            continue
+        }
+
+        $pathText = $line.Substring(3)
+        if ($pathText.Contains(" -> ")) {
+            $pathText = $pathText.Split(" -> ")[1]
+        }
+        $paths += $pathText.Trim()
+    }
+    return $paths | Sort-Object -Unique
+}
+
+function Get-RepoInfo {
+    $repoInfoJson = gh repo view --json nameWithOwner,defaultBranchRef
+    return $repoInfoJson | ConvertFrom-Json
+}
+
+function Get-CurrentBranch {
+    return (git rev-parse --abbrev-ref HEAD).Trim()
+}
+
+function Assert-OnDefaultBranch([string]$DefaultBranch) {
+    $currentBranch = Get-CurrentBranch
+    if ($currentBranch -ne $DefaultBranch) {
+        throw "Start this automation from the default branch '$DefaultBranch'. Current branch: '$currentBranch'."
+    }
+}
+
+function Sync-DefaultBranch([string]$RemoteName, [string]$DefaultBranch) {
+    git fetch $RemoteName $DefaultBranch | Out-Null
+    git pull --ff-only $RemoteName $DefaultBranch | Out-Null
 }
 
 function Get-CompletedTasks([string]$ProgressFile) {
@@ -71,6 +117,85 @@ function Get-NextTask([string]$PrdFile, $CompletedTasks) {
     throw "No incomplete markdown checkbox task was found in $PrdFile after filtering completed progress entries."
 }
 
+function Convert-ToSlug([string]$Value) {
+    $slug = $Value.ToLowerInvariant()
+    $slug = $slug -replace '[^a-z0-9]+', '-'
+    $slug = $slug.Trim('-')
+    if (-not $slug) {
+        $slug = "task"
+    }
+    if ($slug.Length -gt 48) {
+        $slug = $slug.Substring(0, 48).Trim('-')
+    }
+    return $slug
+}
+
+function Find-OpenIssueByTitle([string]$Task) {
+    $issuesJson = gh issue list --state open --search "`"$Task`" in:title" --json number,title,url --limit 100
+    $issues = @()
+    if ($issuesJson) {
+        $issues = $issuesJson | ConvertFrom-Json
+    }
+    return $issues | Where-Object { $_.title -eq $Task } | Select-Object -First 1
+}
+
+function New-IssueBody([string]$Task, [string]$PrdFile) {
+    return @"
+Generated from the PRD by the Ralph once-runner.
+
+Task:
+- $Task
+
+Source:
+- PRD: $PrdFile
+
+Workflow contract:
+- Implement exactly this task on its own branch.
+- Run local verification before pushing.
+- Open a draft PR that references and closes this issue on merge.
+"@
+}
+
+function Get-IssueNumberFromUrl([string]$Url) {
+    if ($Url -match '/(?<num>\d+)$') {
+        return [int]$matches['num']
+    }
+    throw "Unable to parse issue number from URL: $Url"
+}
+
+function Ensure-Issue([string]$Task, [string]$PrdFile) {
+    $issue = Find-OpenIssueByTitle -Task $Task
+    if ($issue) {
+        return $issue
+    }
+
+    $issueBody = New-IssueBody -Task $Task -PrdFile $PrdFile
+    $issueUrl = (gh issue create --title $Task --body $issueBody).Trim()
+    return [pscustomobject]@{
+        number = Get-IssueNumberFromUrl -Url $issueUrl
+        title  = $Task
+        url    = $issueUrl
+    }
+}
+
+function Ensure-TaskBranch([string]$RemoteName, [int]$IssueNumber, [string]$Task) {
+    $branchName = "task/$IssueNumber-$(Convert-ToSlug -Value $Task)"
+    $localBranch = (git branch --list $branchName).Trim()
+    if ($localBranch) {
+        git switch $branchName | Out-Null
+        return $branchName
+    }
+
+    $remoteBranch = git ls-remote --heads $RemoteName $branchName
+    if ($remoteBranch) {
+        git switch -c $branchName --track "$RemoteName/$branchName" | Out-Null
+        return $branchName
+    }
+
+    git switch -c $branchName | Out-Null
+    return $branchName
+}
+
 function Read-ContextFile([string]$PathValue, [string]$Heading) {
     $content = Get-Content -LiteralPath $PathValue -Raw
     return @"
@@ -79,13 +204,49 @@ $content
 "@
 }
 
+function Get-VerificationCommand([string]$RepoRoot, [string]$ExplicitCommand) {
+    if ($ExplicitCommand) {
+        return $ExplicitCommand
+    }
+
+    $packageJsonPath = Join-Path $RepoRoot "package.json"
+    if (-not (Test-Path -LiteralPath $packageJsonPath)) {
+        return ""
+    }
+
+    $packageJson = Get-Content -LiteralPath $packageJsonPath -Raw | ConvertFrom-Json
+    $scriptNames = @()
+    if ($packageJson.scripts) {
+        $scriptNames = $packageJson.scripts.PSObject.Properties.Name
+    }
+
+    if ($scriptNames -contains "test") {
+        return "npm test"
+    }
+    if ($scriptNames -contains "build") {
+        return "npm run build"
+    }
+
+    return ""
+}
+
 function New-RalphPrompt {
     param(
         [string]$RepoRoot,
         [string]$PrdFile,
         [string]$ProgressFile,
-        [string]$Task
+        [string]$Task,
+        [int]$IssueNumber,
+        [string]$IssueUrl,
+        [string]$BranchName,
+        [string]$VerificationCommand
     )
+
+    $verificationLine = if ($VerificationCommand) {
+        "Local verification required before push: $VerificationCommand"
+    } else {
+        "No local verification command is configured by the wrapper; if you add tests, leave the repo in a state where the operator can run them."
+    }
 
     $contextBlocks = @(
         Read-ContextFile -PathValue (Join-Path $RepoRoot "agents\frontend-ui-agent.md") -Heading "agents/frontend-ui-agent.md"
@@ -107,14 +268,20 @@ You are Ralph running a single implementation loop inside this repository: $Repo
 Selected task:
 $Task
 
+Tracking:
+- GitHub issue: #$IssueNumber
+- Issue URL: $IssueUrl
+- Working branch: $BranchName
+
 Execution contract:
 1. Read the PRD and progress context below.
-2. Implement only the selected task above.
+2. Implement only the selected task above and keep the work scoped to issue #$IssueNumber.
 3. Do not start a second task, even if the first one finishes quickly.
 4. Follow the agent and workflow guidance below when making changes.
-5. Do not commit, amend commits, or update progress.txt; the wrapper script will handle that after you finish.
-6. Keep edits scoped to the selected task and leave the repo in a buildable state if practical.
-7. If you need to add notes for the wrapper operator, write them to stdout at the end under a short heading named NOTES.
+5. Add or update focused tests when the repo already has a relevant test harness; otherwise keep the change buildable and note any verification gaps.
+6. Do not create issues, switch branches, commit, push, open PRs, or update progress.txt; the wrapper script owns that workflow.
+7. $verificationLine
+8. If you need to add notes for the wrapper operator, write them to stdout at the end under a short heading named NOTES.
 
 Task selection rule used by the wrapper:
 - first unchecked markdown checkbox task in the PRD
@@ -126,40 +293,57 @@ $($contextBlocks -join "`n`n")
 "@
 }
 
+function Invoke-ExternalCommand([string]$CommandText, [string]$FailureMessage) {
+    Write-Host "Running: $CommandText"
+    & cmd.exe /d /s /c $CommandText
+    if ($LASTEXITCODE -ne 0) {
+        throw $FailureMessage
+    }
+}
+
 function Invoke-Ralph([string]$CommandTemplate, [string]$RepoRoot, [string]$PromptFile) {
     $expanded = $CommandTemplate.Replace("{REPO_ROOT}", $RepoRoot).Replace("{PROMPT_FILE}", $PromptFile)
-    Write-Host "Running: $expanded"
-    & cmd.exe /d /s /c $expanded
-    if ($LASTEXITCODE -ne 0) {
-        throw "Ralph command failed with exit code $LASTEXITCODE."
-    }
+    Invoke-ExternalCommand -CommandText $expanded -FailureMessage "Ralph command failed with exit code $LASTEXITCODE."
 }
 
-function Get-ChangedPaths {
-    $paths = @()
-    foreach ($line in (git status --porcelain)) {
-        if (-not $line) {
-            continue
-        }
-
-        $pathText = $line.Substring(3)
-        if ($pathText.Contains(" -> ")) {
-            $pathText = $pathText.Split(" -> ")[1]
-        }
-        $paths += $pathText.Trim()
+function Invoke-Verification([string]$VerificationCommand) {
+    if (-not $VerificationCommand) {
+        return
     }
-    return $paths | Sort-Object -Unique
+    Invoke-ExternalCommand -CommandText $VerificationCommand -FailureMessage "Verification command failed with exit code $LASTEXITCODE."
 }
 
-function New-CommitMessage([string]$Prefix, [string]$Task) {
+function Get-ChangedPaths([string[]]$BaselinePaths) {
+    $baseline = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($path in $BaselinePaths) {
+        if ($path) {
+            [void]$baseline.Add($path)
+        }
+    }
+
+    $newPaths = @()
+    foreach ($path in (Get-StatusPaths)) {
+        if (-not $baseline.Contains($path)) {
+            $newPaths += $path
+        }
+    }
+
+    return $newPaths | Sort-Object -Unique
+}
+
+function New-CommitMessage([string]$Prefix, [int]$IssueNumber, [string]$Task) {
     $sanitized = ($Task -replace '\s+', ' ').Trim()
-    return "$Prefix: $sanitized"
+    return "$Prefix(#$IssueNumber): $sanitized"
 }
 
 function Append-ProgressEntry {
     param(
         [string]$ProgressFile,
         [string]$Task,
+        [int]$IssueNumber,
+        [string]$IssueUrl,
+        [string]$BranchName,
+        [string]$VerificationCommand,
         [string[]]$ChangedPaths
     )
 
@@ -170,7 +354,13 @@ function Append-ProgressEntry {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz"
     $entryLines = @(
         "[$timestamp] TASK: $Task"
+        "ISSUE: #$IssueNumber $IssueUrl"
+        "BRANCH: $BranchName"
     )
+
+    if ($VerificationCommand) {
+        $entryLines += "VERIFY: $VerificationCommand"
+    }
 
     if ($ChangedPaths.Count -gt 0) {
         $entryLines += "FILES:"
@@ -181,20 +371,68 @@ function Append-ProgressEntry {
     Add-Content -LiteralPath $ProgressFile -Value $entryLines
 }
 
-$repoRoot = Resolve-RepoRoot
-Assert-CleanWorktree
-
-$prdFile = Resolve-ExistingPath -RepoRoot $repoRoot -PathValue $PrdPath -Label "PRD file"
-$progressFile = if ([System.IO.Path]::IsPathRooted($ProgressPath)) {
-    [System.IO.Path]::GetFullPath($ProgressPath)
-} else {
-    [System.IO.Path]::GetFullPath((Join-Path $repoRoot $ProgressPath))
+function Find-OpenPrForBranch([string]$BranchName) {
+    $prsJson = gh pr list --state open --head $BranchName --json number,url,title --limit 20
+    $prs = @()
+    if ($prsJson) {
+        $prs = $prsJson | ConvertFrom-Json
+    }
+    return $prs | Select-Object -First 1
 }
+
+function New-PrBody([int]$IssueNumber, [string]$Task, [string]$VerificationCommand) {
+    $verificationText = if ($VerificationCommand) {
+        "- Local verification: ``$VerificationCommand``"
+    } else {
+        "- Local verification: no explicit command configured"
+    }
+
+    return @"
+## Summary
+- Implement PRD task: $Task
+
+## Tracking
+- Closes #$IssueNumber
+$verificationText
+"@
+}
+
+function Ensure-DraftPr([string]$RemoteName, [string]$BaseBranch, [string]$BranchName, [string]$Title, [int]$IssueNumber, [string]$Task, [string]$VerificationCommand) {
+    $existingPr = Find-OpenPrForBranch -BranchName $BranchName
+    if ($existingPr) {
+        return $existingPr
+    }
+
+    $prBody = New-PrBody -IssueNumber $IssueNumber -Task $Task -VerificationCommand $VerificationCommand
+    $prUrl = (gh pr create --draft --base $BaseBranch --head $BranchName --title $Title --body $prBody).Trim()
+    return [pscustomobject]@{
+        url   = $prUrl
+        title = $Title
+    }
+}
+
+Assert-CommandAvailable -Name "git"
+Assert-CommandAvailable -Name "gh"
+
+$repoRoot = Resolve-RepoRoot
+$prdFile = Resolve-ExistingPath -RepoRoot $repoRoot -PathValue $PrdPath -Label "PRD file"
+$progressFile = Resolve-PathInRepo -RepoRoot $repoRoot -PathValue $ProgressPath
+
+Assert-CleanTrackedWorktree
+$baselinePaths = Get-StatusPaths
+
+$repoInfo = Get-RepoInfo
+$defaultBranch = $repoInfo.defaultBranchRef.name
+Assert-OnDefaultBranch -DefaultBranch $defaultBranch
+Sync-DefaultBranch -RemoteName $RemoteName -DefaultBranch $defaultBranch
 
 $completedTasks = Get-CompletedTasks -ProgressFile $progressFile
 $task = Get-NextTask -PrdFile $prdFile -CompletedTasks $completedTasks
+$issue = Ensure-Issue -Task $task -PrdFile $prdFile
+$branchName = Ensure-TaskBranch -RemoteName $RemoteName -IssueNumber $issue.number -Task $task
+$verificationToRun = Get-VerificationCommand -RepoRoot $repoRoot -ExplicitCommand $VerificationCommand
 
-$prompt = New-RalphPrompt -RepoRoot $repoRoot -PrdFile $prdFile -ProgressFile $progressFile -Task $task
+$prompt = New-RalphPrompt -RepoRoot $repoRoot -PrdFile $prdFile -ProgressFile $progressFile -Task $task -IssueNumber $issue.number -IssueUrl $issue.url -BranchName $branchName -VerificationCommand $verificationToRun
 
 if ($ShowPrompt) {
     Write-Host $prompt
@@ -206,21 +444,27 @@ Set-Content -LiteralPath $tempPromptFile -Value $prompt -Encoding UTF8
 try {
     Invoke-Ralph -CommandTemplate $RalphCommandTemplate -RepoRoot $repoRoot -PromptFile $tempPromptFile
 
-    $changedPaths = Get-ChangedPaths
+    $changedPaths = Get-ChangedPaths -BaselinePaths $baselinePaths
     if (-not $changedPaths -or $changedPaths.Count -eq 0) {
         throw "Ralph completed without producing any file changes."
     }
 
-    $commitMessage = New-CommitMessage -Prefix $CommitPrefix -Task $task
-    Append-ProgressEntry -ProgressFile $progressFile -Task $task -ChangedPaths $changedPaths
+    Invoke-Verification -VerificationCommand $verificationToRun
 
+    Append-ProgressEntry -ProgressFile $progressFile -Task $task -IssueNumber $issue.number -IssueUrl $issue.url -BranchName $branchName -VerificationCommand $verificationToRun -ChangedPaths $changedPaths
+
+    $commitMessage = New-CommitMessage -Prefix $CommitPrefix -IssueNumber $issue.number -Task $task
     git add -- $changedPaths
     git add -- $progressFile
     git commit -m $commitMessage | Out-Null
-    $commitSha = (git rev-parse --short HEAD).Trim()
+    git push -u $RemoteName $branchName | Out-Null
+
+    $pr = Ensure-DraftPr -RemoteName $RemoteName -BaseBranch $defaultBranch -BranchName $branchName -Title $commitMessage -IssueNumber $issue.number -Task $task -VerificationCommand $verificationToRun
 
     Write-Host "Completed task: $task"
-    Write-Host "Commit: $commitSha"
+    Write-Host "Issue: #$($issue.number) $($issue.url)"
+    Write-Host "Branch: $branchName"
+    Write-Host "PR: $($pr.url)"
 } finally {
     if (Test-Path -LiteralPath $tempPromptFile) {
         Remove-Item -LiteralPath $tempPromptFile -Force

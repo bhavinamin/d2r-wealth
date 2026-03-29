@@ -16,6 +16,8 @@ Build a single HR-denominated price index the app can use everywhere.
 - Prefer exact recipe values over inferred averages.
 - Preserve items with no sell value, but flag them as unsellable.
 - When multiple rows map to the same item, choose the most specific market entry and record the conflict.
+- Track market workflow changes in GitHub issues and implement them on dedicated branches with reviewable PRs.
+- Run local verification before pushing changes, and extend CI when a critical pricing path lacks automated checks.
 
 ## Outputs
 - Canonical item price map in HR.
