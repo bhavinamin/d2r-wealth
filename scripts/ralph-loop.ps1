@@ -4,6 +4,7 @@ param(
     [int]$MaxLoops = 25,
     [int]$MaxRecoveryAttempts = 2,
     [int]$RetryDelaySeconds = 10,
+    [int]$CiPollSeconds = 20,
     [string]$RemoteName = "origin",
     [string]$NotificationHandle = ""
 )
@@ -69,6 +70,34 @@ function Ensure-DefaultBranchReady([string]$RemoteName, [string]$DefaultBranch) 
 
     git fetch $RemoteName $DefaultBranch | Out-Null
     git pull --ff-only $RemoteName $DefaultBranch | Out-Null
+}
+
+function Get-DefaultBranchCiRuns([string]$DefaultBranch) {
+    $runsJson = gh run list --branch $DefaultBranch --json databaseId,status,conclusion,workflowName,url --limit 20
+    $runs = @()
+    if ($runsJson) {
+        $runs = $runsJson | ConvertFrom-Json
+    }
+    return @($runs | Where-Object { $_.workflowName -eq "CI" })
+}
+
+function Wait-ForDefaultBranchCi([string]$DefaultBranch, [int]$PollSeconds) {
+    while ($true) {
+        $runs = Get-DefaultBranchCiRuns -DefaultBranch $DefaultBranch
+        $activeRuns = @($runs | Where-Object { $_.status -ne "completed" })
+        if ($activeRuns.Count -eq 0) {
+            break
+        }
+
+        Write-Host "Waiting for $($activeRuns.Count) CI run(s) on '$DefaultBranch' to finish..."
+        Start-Sleep -Seconds $PollSeconds
+    }
+
+    $latestCompleted = @(Get-DefaultBranchCiRuns -DefaultBranch $DefaultBranch | Where-Object { $_.status -eq "completed" } | Select-Object -First 1)
+    if ($latestCompleted.Count -gt 0 -and $latestCompleted[0].conclusion -ne "success") {
+        $run = $latestCompleted[0]
+        throw "Default branch CI is red on '$DefaultBranch': $($run.url)"
+    }
 }
 
 function Invoke-LoggedPowerShellFile([string]$ScriptPath, [string[]]$Arguments, [string]$OutputFile) {
@@ -207,6 +236,8 @@ while ($loopCount -lt $MaxLoops) {
     $loopCount += 1
     Write-Host "Loop $loopCount of $MaxLoops"
 
+    Ensure-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $defaultBranch
+    Wait-ForDefaultBranchCi -DefaultBranch $defaultBranch -PollSeconds $CiPollSeconds
     Ensure-DefaultBranchReady -RemoteName $RemoteName -DefaultBranch $defaultBranch
 
     $success = $false
