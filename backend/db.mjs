@@ -662,16 +662,6 @@ export const ingestAccountReport = ({ accountId, gatewayTokenId, clientId, repor
     const saveSetId = resolved.saveSetId;
     latestAccountId = resolved.accountId;
 
-    const existingLatest = db.prepare("SELECT save_set_id FROM account_latest WHERE account_id = ?").get(latestAccountId);
-    const saveSetChanged =
-      Boolean(saveSetId) &&
-      Boolean(existingLatest) &&
-      String(existingLatest.save_set_id ?? "") !== saveSetId;
-
-    if (saveSetChanged) {
-      db.prepare("DELETE FROM account_history WHERE account_id = ?").run(latestAccountId);
-    }
-
     db.prepare(
       "INSERT OR REPLACE INTO account_latest (account_id, client_id, received_at, save_set_id, report_json) VALUES (?, ?, ?, ?, ?)",
     ).run(latestAccountId, clientId, timestamp, saveSetId, JSON.stringify(report));
