@@ -656,6 +656,63 @@ test("gateway sync covers token-based ingest, latest/history reads, and disconne
   assert.match(loggedOutReadBody.error, /Authentication required/);
 });
 
+test("gateway sync preserves history even if the latest save-set marker drifts", async (t) => {
+  const ctx = await loadIntegrationContext("history-preserve");
+  t.after(ctx.close);
+
+  const pairing = await createPairing(ctx.backendBaseUrl, "desktop-history");
+  await approvePairing(ctx.backendBaseUrl, pairing.pairingId, ctx.sessionCookie);
+  const { response: claimResponse, body: claimed } = await claimPairing(
+    ctx.backendBaseUrl,
+    pairing.pairingId,
+    pairing.pairingSecret,
+  );
+  assert.equal(claimResponse.status, 200);
+  assert.equal(claimed.status, "approved");
+
+  const saveDir = path.join(ctx.tempRoot, "history-preserve");
+  fs.mkdirSync(saveDir, { recursive: true });
+  fs.writeFileSync(path.join(saveDir, "hero.d2s"), "fixture", "utf8");
+
+  const service = new GatewayService({
+    settings: {
+      host: "127.0.0.1",
+      port: 3188,
+      saveDir,
+      autoStart: false,
+      dashboardUrl: "http://127.0.0.1:4173",
+      backendUrl: ctx.backendBaseUrl,
+      accountId: ctx.account.id,
+      clientId: claimed.clientId,
+      syncToken: claimed.gatewayToken,
+    },
+  });
+
+  let report = createReport("HistoryA", 11.5, "2026-03-29T13:00:00.000Z", "save-set-alpha");
+  service.buildReport = async () => report;
+  await service.syncToBackend();
+
+  ctx.db.getDatabase().prepare("UPDATE account_latest SET save_set_id = ? WHERE account_id = ?").run("save-set-drifted", ctx.account.id);
+
+  report = createReport("HistoryB", 14.25, "2026-03-29T13:05:00.000Z", "save-set-alpha");
+  await service.syncToBackend();
+
+  const { response: historyResponse, body: historyBody } = await fetchJson(
+    `${ctx.backendBaseUrl}/api/accounts/${encodeURIComponent(ctx.account.id)}/history`,
+    {
+      headers: { Cookie: ctx.sessionCookie },
+    },
+  );
+  assert.equal(historyResponse.status, 200);
+  assert.deepEqual(
+    historyBody.history.map((entry) => ({ totalHr: entry.totalHr, capturedAt: entry.capturedAt })),
+    [
+      { totalHr: 11.5, capturedAt: "2026-03-29T13:00:00.000Z" },
+      { totalHr: 14.25, capturedAt: "2026-03-29T13:05:00.000Z" },
+    ],
+  );
+});
+
 test("backend stores parsed save data per save-set account and updates rows on re-sync", async (t) => {
   const ctx = await loadIntegrationContext("save-set-accounts");
   t.after(ctx.close);

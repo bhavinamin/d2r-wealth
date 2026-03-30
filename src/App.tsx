@@ -188,7 +188,6 @@ const derivePendingPairingId = () => {
 };
 
 const portraitForClass = (className: string) => classPortraits[className.toLowerCase()] ?? sorceressPortrait;
-const warningKindLabel = (kind: "unresolved" | "ambiguous") => (kind === "ambiguous" ? "Low confidence" : "Unmatched");
 const rulesetClass = (ruleset: "Classic" | "LoD" | "ROTW") => {
   if (ruleset === "ROTW") {
     return "ruleset-rotw";
@@ -442,48 +441,6 @@ function TradeBreakdown(props: { valueHr: number }) {
   );
 }
 
-function ValuationWarningsPanel(props: { report: WealthReport | null }) {
-  const warnings = props.report?.valuationWarnings;
-  const visibleWarnings = warnings?.items.slice(0, 8) ?? [];
-
-  return (
-    <section className="panel warning-panel">
-      <div className="panel-header">
-        <h3>Valuation Warnings</h3>
-        <span>{warnings?.totalCount ?? 0} excluded items</span>
-      </div>
-      {!warnings?.totalCount ? (
-        <p className="empty-state">All parsed items matched a trusted valuation path.</p>
-      ) : (
-        <>
-          <p className="warning-summary">
-            {warnings.totalCount} items are excluded from HR totals: {warnings.unresolvedCount} unmatched and {warnings.ambiguousCount} low-confidence.
-          </p>
-          <div className="table">
-            {visibleWarnings.map((warning) => (
-              <div key={`${warning.owner}-${warning.source}-${warning.name}`} className="table-row">
-                <div>
-                  <strong>{warning.name}</strong>
-                  <span>
-                    {warning.owner} • {warning.source ?? warning.location}
-                  </span>
-                </div>
-                <div className="warning-meta">
-                  <span className={`warning-pill ${warning.kind}`}>{warningKindLabel(warning.kind)}</span>
-                  <span>{warning.valueSource.detail ?? warning.valueSource.label}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          {warnings.totalCount > visibleWarnings.length ? (
-            <p className="warning-summary">Showing {visibleWarnings.length} of {warnings.totalCount} excluded items.</p>
-          ) : null}
-        </>
-      )}
-    </section>
-  );
-}
-
 function HistoryChart(props: { data: WealthSnapshot[] }) {
   if (props.data.length === 0) {
     return <p className="empty-state">No snapshots yet. Import a save set to start the timeline.</p>;
@@ -633,6 +590,7 @@ export default function App() {
   const reportRef = useRef<WealthReport | null>(null);
   const selectedAccountRef = useRef(selectedAccountId);
   const deferredHistory = useDeferredValue(history);
+  const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0] ?? null;
 
   useEffect(() => {
     setHistory(loadHistory());
@@ -909,7 +867,10 @@ export default function App() {
           setAccounts(mePayload.accounts);
           setAuthRequired(false);
 
-          const nextAccountId = mePayload.accounts[0]?.id || "";
+          const nextAccountId =
+            mePayload.accounts.find((account) => account.id === selectedAccountRef.current)?.id
+            ?? mePayload.accounts[0]?.id
+            ?? "";
           if (selectedAccountRef.current !== nextAccountId) {
             setSelectedAccountId(nextAccountId);
           }
@@ -1012,7 +973,17 @@ export default function App() {
                   <span className="gateway-status status-connected">{user?.username}</span>
                 </div>
                 <div className="account-controls">
-                  <span>{accounts[0]?.name ?? "Discord Account"}</span>
+                  {accounts.length > 1 ? (
+                    <select value={selectedAccountId} onChange={(event) => setSelectedAccountId(event.target.value)}>
+                      {accounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span>{selectedAccount?.name ?? "Discord Account"}</span>
+                  )}
                   <button type="button" onClick={logout}>
                     Log Out
                   </button>
@@ -1098,12 +1069,7 @@ export default function App() {
                         </div>
                         <div className="roster-values">
                           <b>{formatHr(totalHrForCharacter(character))}</b>
-                          <span className="roster-total-label">total</span>
-                          <div className="roster-breakdown">
-                            <span>Eq {formatHr(character.equippedHr)}</span>
-                            <span>Inv {formatHr(inventoryHrForCharacter(character))}</span>
-                            <span>Stash {formatHr(characterStashHrForCharacter(character))}</span>
-                          </div>
+                          <span>{formatHr(character.equippedHr)} equipped</span>
                         </div>
                       </article>
                     ))}

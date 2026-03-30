@@ -27,7 +27,7 @@ export const DEFAULT_SETTINGS_PATH = process.env.D2_GATEWAY_SETTINGS_PATH
 
 const sanitizePort = (value) => {
   const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
     return DEFAULT_GATEWAY_SETTINGS.port;
   }
   return port;
